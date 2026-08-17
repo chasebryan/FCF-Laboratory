@@ -51,14 +51,7 @@ final class WorkspaceSession: ObservableObject {
     func openProject(_ url: URL) {
         projectURL = url.standardizedFileURL
         objects.removeAll(keepingCapacity: true)
-
-        let project = LaboratoryObject(
-            title: url.lastPathComponent,
-            kind: .other,
-            url: url.standardizedFileURL
-        )
-        objects.append(project)
-        activeObjectID = project.id
+        activeObjectID = nil
         rememberProject(url)
     }
 
