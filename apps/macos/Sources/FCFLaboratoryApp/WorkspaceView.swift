@@ -259,7 +259,7 @@ struct WorkspaceView: View {
                 Spacer(minLength: 0)
             }
             .font(.system(size: 11, weight: entry.kind == .directory ? .medium : .regular))
-            .foregroundStyle(entry.kind == .directory ? .secondary : .primary.opacity(0.82))
+            .foregroundStyle(Color.primary.opacity(entry.kind == .directory ? 0.55 : 0.82))
             .padding(.leading, CGFloat(entry.depth) * 12 + 10)
             .padding(.trailing, 10)
             .frame(height: 24)
