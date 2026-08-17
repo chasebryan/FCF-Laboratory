@@ -78,7 +78,10 @@ mod tests {
             name: "CENTL".into(),
             repository: Some("chasebryan/centl".into()),
             version: None,
-            capabilities: vec![EngineCapability::ExactArithmetic, EngineCapability::Verification],
+            capabilities: vec![
+                EngineCapability::ExactArithmetic,
+                EngineCapability::Verification,
+            ],
             transports: vec![ExecutionTransport::LocalExecutable],
         };
 
