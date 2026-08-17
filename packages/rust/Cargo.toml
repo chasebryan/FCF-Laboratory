@@ -5,6 +5,7 @@ members = [
   "engine-protocol",
   "ai-provider-protocol",
   "notebook",
+  "terminal-protocol",
 ]
 resolver = "2"
 

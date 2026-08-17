@@ -22,6 +22,7 @@ struct CommandRegistry {
     static let foundation = CommandRegistry(commands: [
         LaboratoryCommand(id: "project.open", title: "Open Project", subtitle: "Open a local workspace", shortcut: "⌘O", keywords: ["workspace", "folder", "repository"]),
         LaboratoryCommand(id: "notebook.new", title: "New FCF Notebook", subtitle: "Create a native reproducible research notebook", shortcut: "⌥⌘N", keywords: ["notebook", "experiment", "cells", "research", "provenance"]),
+        LaboratoryCommand(id: "terminal.new", title: "New Terminal", subtitle: "Open an interactive project shell", shortcut: "⌥⌘T", keywords: ["terminal", "shell", "pty", "zsh", "command"]),
         LaboratoryCommand(id: "project.quickOpen", title: "Quick Open", subtitle: "Open an indexed project file", shortcut: "⌘P", keywords: ["file", "path", "open", "navigate"]),
         LaboratoryCommand(id: "project.search", title: "Search Project", subtitle: "Search text across indexed project files", shortcut: "⇧⌘F", keywords: ["find", "grep", "workspace", "files"]),
         LaboratoryCommand(id: "document.symbols", title: "Document Symbols", subtitle: "Navigate local symbols in the active document", shortcut: "⇧⌘O", keywords: ["outline", "function", "class", "struct", "method"]),

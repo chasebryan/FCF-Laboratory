@@ -62,6 +62,8 @@ struct WorkspaceView: View {
                 openProject()
             case .newNotebook:
                 model.createNotebook()
+            case .newTerminal:
+                model.createTerminal()
             case .showGitStatus:
                 model.utilityPanel = .git
             case .saveActiveDocument:
@@ -94,19 +96,25 @@ struct WorkspaceView: View {
                 Text(document.language.displayName)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.tertiary)
-
-                if document.isDirty {
-                    dirtyIndicator
-                }
+                if document.isDirty { dirtyIndicator }
             }
 
             if let notebook = model.activeNotebookDocument {
                 Text("FCF Notebook")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.tertiary)
-                if notebook.isDirty {
-                    dirtyIndicator
+                if notebook.isDirty { dirtyIndicator }
+            }
+
+            if let terminal = model.activeTerminalSession {
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(terminal.isRunning ? Color.secondary : Color.primary.opacity(0.25))
+                        .frame(width: 5, height: 5)
+                    Text("PTY")
                 }
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.tertiary)
             }
 
             if let git = model.gitSnapshot {
@@ -114,8 +122,7 @@ struct WorkspaceView: View {
                     Image(systemName: "arrow.triangle.branch")
                     Text(git.branch)
                     if git.isDirty {
-                        Circle()
-                            .frame(width: 5, height: 5)
+                        Circle().frame(width: 5, height: 5)
                     }
                 }
                 .font(.system(size: 10, weight: .medium))
@@ -163,15 +170,12 @@ struct WorkspaceView: View {
                             model.session.activeObjectID = object.id
                         } label: {
                             HStack(spacing: 7) {
-                                Text(object.title)
-                                    .lineLimit(1)
-
+                                Text(object.title).lineLimit(1)
                                 if let url = object.url {
                                     let standardized = url.standardizedFileURL
                                     if model.editorDocuments[standardized]?.isDirty == true ||
                                         model.notebookDocuments[standardized]?.isDirty == true {
-                                        Circle()
-                                            .frame(width: 4, height: 4)
+                                        Circle().frame(width: 4, height: 4)
                                     }
                                 }
                             }
@@ -208,9 +212,7 @@ struct WorkspaceView: View {
             .padding(.vertical, 5)
         }
         .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color.primary.opacity(0.05))
-                .frame(height: 1)
+            Rectangle().fill(Color.primary.opacity(0.05)).frame(height: 1)
         }
     }
 
@@ -221,19 +223,12 @@ struct WorkspaceView: View {
                     .font(.system(size: 10, weight: .semibold))
                     .tracking(0.8)
                     .foregroundStyle(.tertiary)
-
                 Spacer()
-
-                if model.isIndexingProject {
-                    ProgressView()
-                        .controlSize(.mini)
-                }
-
+                if model.isIndexingProject { ProgressView().controlSize(.mini) }
                 Button {
                     model.isNavigatorPresented = false
                 } label: {
-                    Image(systemName: "sidebar.left")
-                        .font(.system(size: 11))
+                    Image(systemName: "sidebar.left").font(.system(size: 11))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.tertiary)
@@ -243,8 +238,7 @@ struct WorkspaceView: View {
 
             if let project = model.session.projectURL {
                 HStack(spacing: 7) {
-                    Image(systemName: "folder")
-                        .foregroundStyle(.secondary)
+                    Image(systemName: "folder").foregroundStyle(.secondary)
                     Text(project.lastPathComponent)
                         .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)
@@ -291,6 +285,14 @@ struct WorkspaceView: View {
 
             Spacer()
 
+            Button {
+                model.createTerminal()
+            } label: {
+                Image(systemName: "terminal")
+            }
+            .buttonStyle(.plain)
+            .help("New Terminal")
+
             if !model.availableTasks.isEmpty {
                 Button {
                     model.utilityPanel = .tasks
@@ -312,11 +314,8 @@ struct WorkspaceView: View {
         let expanded = model.expandedDirectoryPaths.contains(entry.url.standardizedFileURL.path)
 
         return Button {
-            if isDirectory {
-                model.toggleDirectory(entry.url)
-            } else {
-                model.openFile(entry.url)
-            }
+            if isDirectory { model.toggleDirectory(entry.url) }
+            else { model.openFile(entry.url) }
         } label: {
             HStack(spacing: 5) {
                 Group {
@@ -324,9 +323,7 @@ struct WorkspaceView: View {
                         Image(systemName: expanded ? "chevron.down" : "chevron.right")
                             .font(.system(size: 7, weight: .semibold))
                             .foregroundStyle(.tertiary)
-                    } else {
-                        Color.clear
-                    }
+                    } else { Color.clear }
                 }
                 .frame(width: 8, height: 12)
 
@@ -335,9 +332,7 @@ struct WorkspaceView: View {
                     .foregroundStyle(isDirectory ? .secondary : .tertiary)
                     .frame(width: 14)
 
-                Text(entry.name)
-                    .lineLimit(1)
-
+                Text(entry.name).lineLimit(1)
                 Spacer(minLength: 0)
             }
             .font(.system(size: 11, weight: isDirectory ? .medium : .regular))
@@ -364,32 +359,25 @@ struct WorkspaceView: View {
     private var welcomeSurface: some View {
         VStack(spacing: 18) {
             Spacer()
-
             VStack(spacing: 9) {
                 Text("FCF Laboratory")
                     .font(.system(size: 28, weight: .semibold))
                     .tracking(-0.7)
-
                 Text("Open a project. The machinery stays out of the way until you need it.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
-
-                Button("Open Project") {
-                    openProject()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .padding(.top, 8)
+                Button("Open Project") { openProject() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .padding(.top, 8)
 
                 if !model.session.recentProjects.isEmpty {
                     VStack(spacing: 5) {
                         ForEach(model.session.recentProjects.prefix(4), id: \.path) { url in
-                            Button(url.lastPathComponent) {
-                                model.openProject(url)
-                            }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                            Button(url.lastPathComponent) { model.openProject(url) }
+                                .buttonStyle(.plain)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
                         }
                     }
                     .padding(.top, 8)
@@ -400,7 +388,6 @@ struct WorkspaceView: View {
                     .foregroundStyle(.tertiary)
                     .padding(.top, 2)
             }
-
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -421,8 +408,10 @@ struct WorkspaceView: View {
 
     @ViewBuilder
     private func activeObjectSurface(_ object: LaboratoryObject) -> some View {
-        if let notebook = model.activeNotebookDocument,
-           let projectURL = model.session.projectURL {
+        if let terminal = model.activeTerminalSession {
+            TerminalView(session: terminal)
+        } else if let notebook = model.activeNotebookDocument,
+                  let projectURL = model.session.projectURL {
             NotebookView(document: notebook, projectURL: projectURL, aiExecutor: model.notebookAIExecutor)
         } else if object.kind == .paper, let url = object.url {
             PDFDocumentView(url: url)
@@ -434,8 +423,7 @@ struct WorkspaceView: View {
                 Image(systemName: iconName(for: object.kind))
                     .font(.system(size: 22, weight: .light))
                     .foregroundStyle(.tertiary)
-                Text(object.title)
-                    .font(.system(size: 16, weight: .medium))
+                Text(object.title).font(.system(size: 16, weight: .medium))
                 Text("This object type will receive a native renderer.")
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
@@ -450,6 +438,7 @@ struct WorkspaceView: View {
         case .paper: return "doc.richtext"
         case .dataset: return "tablecells"
         case .notebook: return "rectangle.and.pencil.and.ellipsis"
+        case .terminal: return "terminal"
         default: return "doc"
         }
     }
@@ -462,35 +451,24 @@ struct WorkspaceView: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.resolvesAliases = true
-
         guard panel.runModal() == .OK, let url = panel.url else { return }
         model.openProject(url)
     }
 
     private func executeCommand(_ command: LaboratoryCommand) {
         model.isCommandPalettePresented = false
-
         switch command.id {
-        case "project.open":
-            openProject()
-        case "notebook.new":
-            model.createNotebook()
-        case "project.quickOpen":
-            model.utilityPanel = .quickOpen
-        case "project.search":
-            model.utilityPanel = .search
-        case "document.symbols":
-            model.utilityPanel = .symbols
-        case "document.save":
-            model.saveActiveDocument()
-        case "navigator.toggle":
-            model.isNavigatorPresented.toggle()
-        case "tasks.show":
-            model.utilityPanel = .tasks
-        case "git.status":
-            model.utilityPanel = .git
-        default:
-            break
+        case "project.open": openProject()
+        case "notebook.new": model.createNotebook()
+        case "terminal.new": model.createTerminal()
+        case "project.quickOpen": model.utilityPanel = .quickOpen
+        case "project.search": model.utilityPanel = .search
+        case "document.symbols": model.utilityPanel = .symbols
+        case "document.save": model.saveActiveDocument()
+        case "navigator.toggle": model.isNavigatorPresented.toggle()
+        case "tasks.show": model.utilityPanel = .tasks
+        case "git.status": model.utilityPanel = .git
+        default: break
         }
     }
 }
@@ -502,24 +480,16 @@ private struct EditorSurface: View {
         Group {
             switch document.state {
             case .loading:
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
             case .failed(let message):
                 VStack(spacing: 8) {
-                    Text("Unable to open this file")
-                        .font(.system(size: 14, weight: .medium))
-                    Text(message)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                    Text("Unable to open this file").font(.system(size: 14, weight: .medium))
+                    Text(message).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .ready:
                 CodeEditorView(
-                    text: Binding(
-                        get: { document.text },
-                        set: { document.noteEdit($0) }
-                    ),
+                    text: Binding(get: { document.text }, set: { document.noteEdit($0) }),
                     language: document.language,
                     requestedLine: document.requestedLine,
                     onJumpHandled: document.clearRequestedJump,
@@ -534,19 +504,14 @@ private struct CommandPaletteView: View {
     @EnvironmentObject private var model: LaboratoryModel
     @FocusState private var searchFocused: Bool
     @State private var query = ""
-
     let execute: (LaboratoryCommand) -> Void
 
-    private var matches: [LaboratoryCommand] {
-        model.commands.matches(query)
-    }
+    private var matches: [LaboratoryCommand] { model.commands.matches(query) }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Type a command", text: $query)
                     .textFieldStyle(.plain)
                     .focused($searchFocused)
@@ -555,33 +520,21 @@ private struct CommandPaletteView: View {
             .padding(.horizontal, 16)
             .frame(height: 48)
 
-            Rectangle()
-                .fill(Color.primary.opacity(0.07))
-                .frame(height: 1)
+            Rectangle().fill(Color.primary.opacity(0.07)).frame(height: 1)
 
             ScrollView {
                 VStack(spacing: 3) {
                     ForEach(matches) { command in
-                        Button {
-                            execute(command)
-                        } label: {
+                        Button { execute(command) } label: {
                             HStack(spacing: 10) {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(command.title)
-                                        .foregroundStyle(.primary)
+                                    Text(command.title).foregroundStyle(.primary)
                                     if let subtitle = command.subtitle {
-                                        Text(subtitle)
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(.tertiary)
+                                        Text(subtitle).font(.system(size: 10)).foregroundStyle(.tertiary)
                                     }
                                 }
-
                                 Spacer()
-
-                                if let shortcut = command.shortcut {
-                                    Text(shortcut)
-                                        .foregroundStyle(.tertiary)
-                                }
+                                if let shortcut = command.shortcut { Text(shortcut).foregroundStyle(.tertiary) }
                             }
                             .font(.system(size: 13))
                             .padding(.horizontal, 10)
@@ -602,11 +555,7 @@ private struct CommandPaletteView: View {
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.16), radius: 30, y: 14)
-        .onAppear {
-            searchFocused = true
-        }
-        .onExitCommand {
-            model.isCommandPalettePresented = false
-        }
+        .onAppear { searchFocused = true }
+        .onExitCommand { model.isCommandPalettePresented = false }
     }
 }
