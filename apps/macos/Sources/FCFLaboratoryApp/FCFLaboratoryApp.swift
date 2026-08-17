@@ -48,6 +48,12 @@ struct FCFLaboratoryApp: App {
 
                 Divider()
 
+                Button("New Notebook") {
+                    model.pendingAction = .newNotebook
+                }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+                .disabled(model.session.projectURL == nil)
+
                 Button("Open Project…") {
                     model.pendingAction = .openProject
                 }
@@ -57,7 +63,7 @@ struct FCFLaboratoryApp: App {
                     model.pendingAction = .saveActiveDocument
                 }
                 .keyboardShortcut("s", modifiers: [.command])
-                .disabled(model.activeEditorDocument == nil)
+                .disabled(model.activeEditorDocument == nil && model.activeNotebookDocument == nil)
             }
         }
     }
@@ -67,6 +73,7 @@ struct FCFLaboratoryApp: App {
 final class LaboratoryModel: ObservableObject {
     enum PendingAction: Equatable {
         case openProject
+        case newNotebook
         case showGitStatus
         case saveActiveDocument
     }
@@ -91,6 +98,7 @@ final class LaboratoryModel: ObservableObject {
     @Published private(set) var expandedDirectoryPaths: Set<String> = []
     @Published private(set) var isIndexingProject = false
     @Published private(set) var editorDocuments: [URL: EditorDocument] = [:]
+    @Published private(set) var notebookDocuments: [URL: NotebookDocument] = [:]
     @Published private(set) var projectSearchResults: [ProjectSearchResult] = []
     @Published private(set) var isSearchingProject = false
     @Published private(set) var availableTasks: [LaboratoryTaskDescriptor] = []
@@ -113,6 +121,13 @@ final class LaboratoryModel: ObservableObject {
         return editorDocuments[url.standardizedFileURL]
     }
 
+    var activeNotebookDocument: NotebookDocument? {
+        guard let url = session.activeObject?.url else { return nil }
+        return notebookDocuments[url.standardizedFileURL]
+    }
+
+    var notebookAIExecutor: (any NotebookAIExecuting)? { nil }
+
     var visibleProjectEntries: [ProjectEntry] {
         guard let root = session.projectURL?.standardizedFileURL else { return [] }
         let rootPath = root.path
@@ -130,15 +145,17 @@ final class LaboratoryModel: ObservableObject {
     }
 
     func openProject(_ url: URL) {
-        let dirty = editorDocuments.values.filter(\.isDirty)
-        guard !dirty.isEmpty else {
+        let dirtyEditors = editorDocuments.values.filter(\.isDirty)
+        let dirtyNotebooks = notebookDocuments.values.filter(\.isDirty)
+        let dirtyCount = dirtyEditors.count + dirtyNotebooks.count
+        guard dirtyCount > 0 else {
             performOpenProject(url)
             return
         }
 
         let alert = NSAlert()
         alert.messageText = "Save changes before opening another project?"
-        alert.informativeText = "There are \(dirty.count) unsaved document\(dirty.count == 1 ? "" : "s")."
+        alert.informativeText = "There are \(dirtyCount) unsaved object\(dirtyCount == 1 ? "" : "s")."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Save All")
         alert.addButton(withTitle: "Discard Changes")
@@ -147,9 +164,13 @@ final class LaboratoryModel: ObservableObject {
         switch alert.runModal() {
         case .alertFirstButtonReturn:
             Task {
-                for document in dirty {
+                for document in dirtyEditors {
                     await document.save()
                     guard !document.isDirty else { return }
+                }
+                for notebook in dirtyNotebooks {
+                    await notebook.save()
+                    guard !notebook.isDirty else { return }
                 }
                 performOpenProject(url)
             }
@@ -172,6 +193,7 @@ final class LaboratoryModel: ObservableObject {
         expandedDirectoryPaths = []
         projectSearchResults = []
         editorDocuments = [:]
+        notebookDocuments = [:]
         resolvedLanguageServer = nil
         availableTasks = FoundationTaskDiscovery.tasks(for: url)
         lastTaskResult = nil
@@ -199,14 +221,45 @@ final class LaboratoryModel: ObservableObject {
         }
     }
 
+    func createNotebook() {
+        guard let projectURL = session.projectURL else { return }
+        let target = uniqueNotebookURL(in: projectURL)
+        let title = target.deletingPathExtension().lastPathComponent
+
+        Task {
+            do {
+                try await NotebookDocument.create(at: target, title: title)
+                openFile(target)
+                projectEntries = await ProjectIndexer.discover(at: projectURL)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Unable to create notebook"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
     func openFile(_ url: URL, line: Int? = nil) {
         let standardized = url.standardizedFileURL
+        let kind = objectKind(for: standardized)
         let object = LaboratoryObject(
             title: standardized.lastPathComponent,
-            kind: objectKind(for: standardized),
+            kind: kind,
             url: standardized
         )
         session.openObject(object)
+
+        if kind == .notebook, standardized.pathExtension.lowercased() == "fcfnb" {
+            if notebookDocuments[standardized] == nil {
+                let notebook = NotebookDocument(url: standardized)
+                notebookDocuments[standardized] = notebook
+                Task { await notebook.load() }
+            }
+            resolvedLanguageServer = nil
+            return
+        }
 
         guard isTextEditable(standardized) else { return }
         let document: EditorDocument
@@ -228,45 +281,82 @@ final class LaboratoryModel: ObservableObject {
 
     func requestCloseObject(_ id: LaboratoryObject.ID) {
         guard let object = session.objects.first(where: { $0.id == id }) else { return }
-        guard let url = object.url?.standardizedFileURL,
-              let document = editorDocuments[url],
-              document.isDirty else {
-            closeObject(id, url: object.url)
+        guard let url = object.url?.standardizedFileURL else {
+            closeObject(id, url: nil)
             return
         }
 
-        let alert = NSAlert()
-        alert.messageText = "Save changes to \(object.title)?"
-        alert.informativeText = "Your changes will be lost if you close this document without saving."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Don’t Save")
-        alert.addButton(withTitle: "Cancel")
+        if let document = editorDocuments[url], document.isDirty {
+            promptToCloseEditor(document, object: object, url: url)
+            return
+        }
 
+        if let notebook = notebookDocuments[url], notebook.isDirty {
+            promptToCloseNotebook(notebook, object: object, url: url)
+            return
+        }
+
+        closeObject(id, url: url)
+    }
+
+    private func promptToCloseEditor(_ document: EditorDocument, object: LaboratoryObject, url: URL) {
+        let alert = closeAlert(for: object.title)
         switch alert.runModal() {
         case .alertFirstButtonReturn:
             Task {
                 await document.save()
                 guard !document.isDirty else { return }
-                closeObject(id, url: url)
+                closeObject(object.id, url: url)
             }
         case .alertSecondButtonReturn:
-            closeObject(id, url: url)
+            closeObject(object.id, url: url)
         default:
             break
         }
     }
 
+    private func promptToCloseNotebook(_ notebook: NotebookDocument, object: LaboratoryObject, url: URL) {
+        let alert = closeAlert(for: object.title)
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            Task {
+                await notebook.save()
+                guard !notebook.isDirty else { return }
+                closeObject(object.id, url: url)
+            }
+        case .alertSecondButtonReturn:
+            closeObject(object.id, url: url)
+        default:
+            break
+        }
+    }
+
+    private func closeAlert(for title: String) -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = "Save changes to \(title)?"
+        alert.informativeText = "Your changes will be lost if you close this object without saving."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Don’t Save")
+        alert.addButton(withTitle: "Cancel")
+        return alert
+    }
+
     private func closeObject(_ id: LaboratoryObject.ID, url: URL?) {
         session.closeObject(id)
         if let url {
-            editorDocuments.removeValue(forKey: url.standardizedFileURL)
+            let standardized = url.standardizedFileURL
+            editorDocuments.removeValue(forKey: standardized)
+            notebookDocuments.removeValue(forKey: standardized)
         }
     }
 
     func saveActiveDocument() {
-        guard let document = activeEditorDocument else { return }
-        Task { await document.save() }
+        if let document = activeEditorDocument {
+            Task { await document.save() }
+        } else if let notebook = activeNotebookDocument {
+            Task { await notebook.save() }
+        }
     }
 
     func searchProject(_ query: String) {
@@ -335,11 +425,21 @@ final class LaboratoryModel: ObservableObject {
         }
     }
 
+    private func uniqueNotebookURL(in projectURL: URL) -> URL {
+        var index = 1
+        while true {
+            let name = index == 1 ? "Notebook.fcfnb" : "Notebook \(index).fcfnb"
+            let candidate = projectURL.appendingPathComponent(name)
+            if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+            index += 1
+        }
+    }
+
     private func objectKind(for url: URL) -> LaboratoryObject.Kind {
         switch url.pathExtension.lowercased() {
         case "md", "txt", "rst": return .document
         case "pdf": return .paper
-        case "ipynb": return .notebook
+        case "fcfnb", "ipynb": return .notebook
         case "csv", "tsv", "json", "jsonl": return .dataset
         default: return .source
         }
@@ -347,7 +447,7 @@ final class LaboratoryModel: ObservableObject {
 
     private func isTextEditable(_ url: URL) -> Bool {
         let binaryExtensions: Set<String> = [
-            "pdf", "png", "jpg", "jpeg", "gif", "webp", "ico", "zip", "gz", "xz", "bz2",
+            "fcfnb", "pdf", "png", "jpg", "jpeg", "gif", "webp", "ico", "zip", "gz", "xz", "bz2",
             "dmg", "pkg", "app", "exe", "dll", "so", "dylib", "a", "o", "class", "jar"
         ]
         return !binaryExtensions.contains(url.pathExtension.lowercased())

@@ -4,6 +4,7 @@ members = [
   "workspace",
   "engine-protocol",
   "ai-provider-protocol",
+  "notebook",
 ]
 resolver = "2"
 

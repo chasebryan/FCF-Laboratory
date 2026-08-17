@@ -60,6 +60,8 @@ struct WorkspaceView: View {
             switch action {
             case .openProject:
                 openProject()
+            case .newNotebook:
+                model.createNotebook()
             case .showGitStatus:
                 model.utilityPanel = .git
             case .saveActiveDocument:
@@ -94,10 +96,16 @@ struct WorkspaceView: View {
                     .foregroundStyle(.tertiary)
 
                 if document.isDirty {
-                    Circle()
-                        .fill(Color.primary.opacity(0.52))
-                        .frame(width: 5, height: 5)
-                        .help("Unsaved changes")
+                    dirtyIndicator
+                }
+            }
+
+            if let notebook = model.activeNotebookDocument {
+                Text("FCF Notebook")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.tertiary)
+                if notebook.isDirty {
+                    dirtyIndicator
                 }
             }
 
@@ -139,6 +147,13 @@ struct WorkspaceView: View {
         .frame(height: 44)
     }
 
+    private var dirtyIndicator: some View {
+        Circle()
+            .fill(Color.primary.opacity(0.52))
+            .frame(width: 5, height: 5)
+            .help("Unsaved changes")
+    }
+
     private var tabStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 3) {
@@ -151,10 +166,13 @@ struct WorkspaceView: View {
                                 Text(object.title)
                                     .lineLimit(1)
 
-                                if let url = object.url,
-                                   model.editorDocuments[url.standardizedFileURL]?.isDirty == true {
-                                    Circle()
-                                        .frame(width: 4, height: 4)
+                                if let url = object.url {
+                                    let standardized = url.standardizedFileURL
+                                    if model.editorDocuments[standardized]?.isDirty == true ||
+                                        model.notebookDocuments[standardized]?.isDirty == true {
+                                        Circle()
+                                            .frame(width: 4, height: 4)
+                                    }
                                 }
                             }
                             .font(.system(size: 11, weight: object.id == model.session.activeObjectID ? .medium : .regular))
@@ -403,7 +421,10 @@ struct WorkspaceView: View {
 
     @ViewBuilder
     private func activeObjectSurface(_ object: LaboratoryObject) -> some View {
-        if object.kind == .paper, let url = object.url {
+        if let notebook = model.activeNotebookDocument,
+           let projectURL = model.session.projectURL {
+            NotebookView(document: notebook, projectURL: projectURL, aiExecutor: model.notebookAIExecutor)
+        } else if object.kind == .paper, let url = object.url {
             PDFDocumentView(url: url)
         } else if let document = model.activeEditorDocument {
             EditorSurface(document: document)
@@ -452,6 +473,8 @@ struct WorkspaceView: View {
         switch command.id {
         case "project.open":
             openProject()
+        case "notebook.new":
+            model.createNotebook()
         case "project.quickOpen":
             model.utilityPanel = .quickOpen
         case "project.search":
