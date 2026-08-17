@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 final class OpenAIAuthService: ObservableObject {
-    enum CredentialSource: String, Sendable {
+    enum CredentialSource: String, Sendable, Equatable {
         case environment
         case keychain
     }

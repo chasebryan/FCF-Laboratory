@@ -22,10 +22,16 @@ struct AIWorkspacePanel: View {
             HStack(spacing: 8) {
                 statusLabel
                 Spacer()
-                TextField("Model", text: $controller.auth.model)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 10, design: .monospaced))
-                    .frame(width: 120)
+                TextField(
+                    "Model",
+                    text: Binding(
+                        get: { controller.auth.model },
+                        set: { controller.auth.model = $0 }
+                    )
+                )
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 10, design: .monospaced))
+                .frame(width: 120)
             }
 
             if case .unconfigured = controller.auth.status {
@@ -44,11 +50,11 @@ struct AIWorkspacePanel: View {
             }
 
             HStack(spacing: 14) {
-                permissionToggle("Document", isOn: $controller.policy.activeDocument)
-                permissionToggle("Notebook", isOn: $controller.policy.activeNotebook)
-                permissionToggle("Terminal", isOn: $controller.policy.terminalTranscript)
-                permissionToggle("Project files", isOn: $controller.policy.projectFiles)
-                permissionToggle("Git diff", isOn: $controller.policy.gitDiff)
+                permissionToggle("Document", keyPath: \AIContextPolicy.activeDocument)
+                permissionToggle("Notebook", keyPath: \AIContextPolicy.activeNotebook)
+                permissionToggle("Terminal", keyPath: \AIContextPolicy.terminalTranscript)
+                permissionToggle("Project files", keyPath: \AIContextPolicy.projectFiles)
+                permissionToggle("Git diff", keyPath: \AIContextPolicy.gitDiff)
                 Spacer()
                 Button("Revoke All") { controller.policy.revokeAll() }
                     .buttonStyle(.plain)
@@ -81,17 +87,29 @@ struct AIWorkspacePanel: View {
             }
         case .failed(let message):
             VStack(alignment: .leading, spacing: 2) {
-                Text("OpenAI credential error").font(.system(size: 10.5, weight: .semibold))
-                Text(message).font(.system(size: 9)).foregroundStyle(.secondary)
+                Text("OpenAI credential error")
+                    .font(.system(size: 10.5, weight: .semibold))
+                Text(message)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
-    private func permissionToggle(_ title: String, isOn: Binding<Bool>) -> some View {
-        Toggle(title, isOn: isOn)
-            .toggleStyle(.checkbox)
-            .font(.system(size: 9))
-            .fixedSize()
+    private func permissionToggle(
+        _ title: String,
+        keyPath: ReferenceWritableKeyPath<AIContextPolicy, Bool>
+    ) -> some View {
+        Toggle(
+            title,
+            isOn: Binding(
+                get: { controller.policy[keyPath: keyPath] },
+                set: { controller.policy[keyPath: keyPath] = $0 }
+            )
+        )
+        .toggleStyle(.checkbox)
+        .font(.system(size: 9))
+        .fixedSize()
     }
 
     private var conversation: some View {
@@ -139,7 +157,9 @@ struct AIWorkspacePanel: View {
             .frame(minHeight: 245)
             .onChange(of: controller.conversation?.messages.count ?? 0) { _, _ in
                 if let id = controller.conversation?.messages.last?.id {
-                    withAnimation(.easeOut(duration: 0.12)) { proxy.scrollTo(id, anchor: .bottom) }
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        proxy.scrollTo(id, anchor: .bottom)
+                    }
                 }
             }
         }

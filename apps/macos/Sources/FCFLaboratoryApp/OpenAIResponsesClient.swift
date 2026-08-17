@@ -6,6 +6,52 @@ struct OpenAIResponseResult: Sendable {
     let text: String
 }
 
+private enum JSONValue: Codable, Sendable, Equatable {
+    case string(String)
+    case bool(Bool)
+    case number(Double)
+    case array([JSONValue])
+    case object([String: JSONValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() { self = .null }
+        else if let value = try? container.decode(Bool.self) { self = .bool(value) }
+        else if let value = try? container.decode(Double.self) { self = .number(value) }
+        else if let value = try? container.decode(String.self) { self = .string(value) }
+        else if let value = try? container.decode([JSONValue].self) { self = .array(value) }
+        else { self = .object(try container.decode([String: JSONValue].self)) }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value): try container.encode(value)
+        case .bool(let value): try container.encode(value)
+        case .number(let value): try container.encode(value)
+        case .array(let value): try container.encode(value)
+        case .object(let value): try container.encode(value)
+        case .null: try container.encodeNil()
+        }
+    }
+
+    var objectValue: [String: JSONValue]? {
+        if case .object(let value) = self { return value }
+        return nil
+    }
+
+    var arrayValue: [JSONValue]? {
+        if case .array(let value) = self { return value }
+        return nil
+    }
+
+    var stringValue: String? {
+        if case .string(let value) = self { return value }
+        return nil
+    }
+}
+
 actor OpenAIResponsesClient {
     private let apiKey: String
     private let model: String
@@ -30,59 +76,50 @@ actor OpenAIResponsesClient {
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .joined(separator: "\n\n")
 
-        var payload = basePayload(input: userInput, tools: tools)
+        var input: JSONValue = .string(userInput)
 
         for _ in 0..<5 {
-            let response = try await send(payload)
-            let calls = response.envelope.output.compactMap { item -> OpenAIFunctionCall? in
-                guard item.type == "function_call", let name = item.name, let callID = item.callID else { return nil }
-                return OpenAIFunctionCall(name: name, callID: callID, arguments: item.arguments ?? "{}")
-            }
+            let response = try await send(input: input, tools: tools)
+            let calls = functionCalls(in: response.output)
 
             if calls.isEmpty {
-                let text = response.envelope.output
-                    .flatMap { $0.content ?? [] }
-                    .compactMap { $0.type == "output_text" ? $0.text : nil }
-                    .joined(separator: "\n")
+                let text = outputText(in: response.output)
                 guard !text.isEmpty else { throw OpenAIClientError.emptyResponse }
-                return OpenAIResponseResult(id: response.envelope.id, text: text)
+                return OpenAIResponseResult(id: response.id, text: text)
             }
 
-            var continuation: [Any] = response.rawOutput
+            var continuation = response.output
             for call in calls {
                 let value = await executeTool(call, projectURL: projectURL, grants: grants)
-                continuation.append([
-                    "type": "function_call_output",
-                    "call_id": call.callID,
-                    "output": value,
-                ])
+                continuation.append(.object([
+                    "type": .string("function_call_output"),
+                    "call_id": .string(call.callID),
+                    "output": .string(value),
+                ]))
             }
-            payload = basePayload(input: continuation, tools: tools)
+            input = .array(continuation)
         }
 
         throw OpenAIClientError.toolLoopLimit
     }
 
-    private func basePayload(input: Any, tools: [[String: Any]]) -> [String: Any] {
-        var payload: [String: Any] = [
-            "model": model,
+    private func send(input: JSONValue, tools: [JSONValue]) async throws -> OpenAIResponseEnvelope {
+        var payload: [String: JSONValue] = [
+            "model": .string(model),
             "input": input,
-            "store": false,
-            "include": ["reasoning.encrypted_content"],
-            "safety_identifier": safetyIdentifier(),
-            "instructions": instructions,
+            "store": .bool(false),
+            "include": .array([.string("reasoning.encrypted_content")]),
+            "safety_identifier": .string(safetyIdentifier()),
+            "instructions": .string(instructions),
         ]
-        if !tools.isEmpty { payload["tools"] = tools }
-        return payload
-    }
+        if !tools.isEmpty { payload["tools"] = .array(tools) }
 
-    private func send(_ payload: [String: Any]) async throws -> OpenAIWireResponse {
         let url = URL(string: "https://api.openai.com/v1/responses")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        request.httpBody = try JSONEncoder().encode(JSONValue.object(payload))
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw OpenAIClientError.invalidResponse }
@@ -92,54 +129,96 @@ actor OpenAIResponsesClient {
             throw OpenAIClientError.http(http.statusCode, message)
         }
         do {
-            let envelope = try JSONDecoder().decode(OpenAIResponseEnvelope.self, from: data)
-            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let rawOutput = object["output"] as? [[String: Any]] else {
-                throw OpenAIClientError.invalidResponse
-            }
-            return OpenAIWireResponse(envelope: envelope, rawOutput: rawOutput)
-        } catch let error as OpenAIClientError {
-            throw error
+            return try JSONDecoder().decode(OpenAIResponseEnvelope.self, from: data)
         } catch {
             throw OpenAIClientError.decoding(error.localizedDescription)
         }
     }
 
-    private func toolDefinitions(grants: AIContextGrantSnapshot) -> [[String: Any]] {
-        var tools: [[String: Any]] = []
+    private func functionCalls(in output: [JSONValue]) -> [OpenAIFunctionCall] {
+        output.compactMap { item in
+            guard let object = item.objectValue,
+                  object["type"]?.stringValue == "function_call",
+                  let name = object["name"]?.stringValue,
+                  let callID = object["call_id"]?.stringValue else { return nil }
+            return OpenAIFunctionCall(
+                name: name,
+                callID: callID,
+                arguments: object["arguments"]?.stringValue ?? "{}"
+            )
+        }
+    }
+
+    private func outputText(in output: [JSONValue]) -> String {
+        output.compactMap { item -> String? in
+            guard let object = item.objectValue,
+                  let content = object["content"]?.arrayValue else { return nil }
+            let values = content.compactMap { part -> String? in
+                guard let body = part.objectValue,
+                      body["type"]?.stringValue == "output_text" else { return nil }
+                return body["text"]?.stringValue
+            }
+            return values.isEmpty ? nil : values.joined(separator: "\n")
+        }.joined(separator: "\n")
+    }
+
+    private func toolDefinitions(grants: AIContextGrantSnapshot) -> [JSONValue] {
+        var tools: [JSONValue] = []
         if grants.projectFiles {
-            tools.append([
-                "type": "function", "name": "read_workspace_file",
-                "description": "Read one UTF-8 text file inside the current project. Paths must be project-relative.",
-                "strict": true,
-                "parameters": ["type": "object", "properties": ["path": ["type": "string"]], "required": ["path"], "additionalProperties": false],
-            ])
-            tools.append([
-                "type": "function", "name": "search_workspace",
-                "description": "Search text across files in the current project and return bounded matching lines.",
-                "strict": true,
-                "parameters": ["type": "object", "properties": ["query": ["type": "string"]], "required": ["query"], "additionalProperties": false],
-            ])
+            tools.append(.object([
+                "type": .string("function"),
+                "name": .string("read_workspace_file"),
+                "description": .string("Read one UTF-8 text file inside the current project. Paths must be project-relative."),
+                "strict": .bool(true),
+                "parameters": .object([
+                    "type": .string("object"),
+                    "properties": .object([
+                        "path": .object(["type": .string("string")])
+                    ]),
+                    "required": .array([.string("path")]),
+                    "additionalProperties": .bool(false),
+                ]),
+            ]))
+            tools.append(.object([
+                "type": .string("function"),
+                "name": .string("search_workspace"),
+                "description": .string("Search text across files in the current project and return bounded matching lines."),
+                "strict": .bool(true),
+                "parameters": .object([
+                    "type": .string("object"),
+                    "properties": .object([
+                        "query": .object(["type": .string("string")])
+                    ]),
+                    "required": .array([.string("query")]),
+                    "additionalProperties": .bool(false),
+                ]),
+            ]))
         }
         if grants.gitDiff {
-            tools.append([
-                "type": "function", "name": "git_working_diff",
-                "description": "Return the bounded unstaged and staged Git working-tree diff for the current project.",
-                "strict": true,
-                "parameters": ["type": "object", "properties": [:], "required": [], "additionalProperties": false],
-            ])
+            tools.append(.object([
+                "type": .string("function"),
+                "name": .string("git_working_diff"),
+                "description": .string("Return the bounded unstaged and staged Git working-tree diff for the current project."),
+                "strict": .bool(true),
+                "parameters": .object([
+                    "type": .string("object"),
+                    "properties": .object([:]),
+                    "required": .array([]),
+                    "additionalProperties": .bool(false),
+                ]),
+            ]))
         }
         return tools
     }
 
     private func executeTool(_ call: OpenAIFunctionCall, projectURL: URL, grants: AIContextGrantSnapshot) async -> String {
-        let arguments = (try? JSONSerialization.jsonObject(with: Data(call.arguments.utf8))) as? [String: Any] ?? [:]
+        let arguments = (try? JSONDecoder().decode([String: JSONValue].self, from: Data(call.arguments.utf8))) ?? [:]
         switch call.name {
         case "read_workspace_file" where grants.projectFiles:
-            guard let path = arguments["path"] as? String else { return "error: missing path" }
+            guard let path = arguments["path"]?.stringValue else { return "error: missing path" }
             return await readFile(path, projectURL: projectURL)
         case "search_workspace" where grants.projectFiles:
-            guard let query = arguments["query"] as? String else { return "error: missing query" }
+            guard let query = arguments["query"]?.stringValue else { return "error: missing query" }
             return await searchWorkspace(query, projectURL: projectURL)
         case "git_working_diff" where grants.gitDiff:
             return await gitDiff(projectURL: projectURL)
@@ -154,8 +233,12 @@ actor OpenAIResponsesClient {
             let candidate = root.appendingPathComponent(path).standardizedFileURL
             let rootPrefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
             guard candidate.path.hasPrefix(rootPrefix), candidate.path != root.path else { return "error: path escapes workspace" }
-            guard let size = try? candidate.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 256 * 1024 else { return "error: file is unavailable or larger than 256 KiB" }
-            guard let data = try? Data(contentsOf: candidate), let text = String(data: data, encoding: .utf8) else { return "error: file is not readable UTF-8 text" }
+            guard let size = try? candidate.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 256 * 1024 else {
+                return "error: file is unavailable or larger than 256 KiB"
+            }
+            guard let data = try? Data(contentsOf: candidate), let text = String(data: data, encoding: .utf8) else {
+                return "error: file is not readable UTF-8 text"
+            }
             return text
         }.value
     }
@@ -181,7 +264,12 @@ actor OpenAIResponsesClient {
                 process.arguments = ["git", "-C", projectURL.path] + args
                 process.standardOutput = pipe
                 process.standardError = FileHandle.nullDevice
-                do { try process.run(); process.waitUntilExit() } catch { return "" }
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                } catch {
+                    return ""
+                }
                 let data = pipe.fileHandleForReading.readDataToEndOfFile().prefix(256 * 1024)
                 return String(decoding: data, as: UTF8.self)
             }
@@ -202,20 +290,32 @@ actor OpenAIResponsesClient {
     }
 }
 
-private struct OpenAIWireResponse { let envelope: OpenAIResponseEnvelope; let rawOutput: [[String: Any]] }
-private struct OpenAIFunctionCall { let name: String; let callID: String; let arguments: String }
-private struct OpenAIResponseEnvelope: Decodable { let id: String; let output: [OpenAIOutputItem] }
-private struct OpenAIOutputItem: Decodable {
-    let type: String; let name: String?; let callID: String?; let arguments: String?; let content: [OpenAIContentItem]?
-    enum CodingKeys: String, CodingKey { case type, name, arguments, content; case callID = "call_id" }
+private struct OpenAIFunctionCall: Sendable {
+    let name: String
+    let callID: String
+    let arguments: String
 }
-private struct OpenAIContentItem: Decodable { let type: String; let text: String? }
-private struct OpenAIErrorEnvelope: Decodable { let error: OpenAIErrorBody }
-private struct OpenAIErrorBody: Decodable { let message: String }
+
+private struct OpenAIResponseEnvelope: Decodable, Sendable {
+    let id: String
+    let output: [JSONValue]
+}
+
+private struct OpenAIErrorEnvelope: Decodable {
+    let error: OpenAIErrorBody
+}
+
+private struct OpenAIErrorBody: Decodable {
+    let message: String
+}
 
 enum OpenAIClientError: LocalizedError {
-    case invalidResponse, emptyResponse, toolLoopLimit
-    case http(Int, String), decoding(String)
+    case invalidResponse
+    case http(Int, String)
+    case decoding(String)
+    case emptyResponse
+    case toolLoopLimit
+
     var errorDescription: String? {
         switch self {
         case .invalidResponse: return "OpenAI returned an invalid response."
