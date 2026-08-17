@@ -14,11 +14,19 @@ final class EditorDocument: ObservableObject, Identifiable {
     @Published var text = ""
     @Published private(set) var state: State = .loading
     @Published private(set) var isDirty = false
+    @Published private(set) var language: LanguageProfile
+    @Published private(set) var symbols: [DocumentSymbol] = []
 
     private var savedText = ""
+    private var analysisTask: Task<Void, Never>?
 
     init(url: URL) {
         self.url = url.standardizedFileURL
+        self.language = LanguageProfile.detect(url: url)
+    }
+
+    deinit {
+        analysisTask?.cancel()
     }
 
     func load() async {
@@ -30,6 +38,8 @@ final class EditorDocument: ObservableObject, Identifiable {
             }.value
             text = loaded
             savedText = loaded
+            language = LanguageProfile.detect(url: url, contentPrefix: String(loaded.prefix(512)))
+            symbols = SymbolIndex.symbols(in: loaded, language: language)
             isDirty = false
             state = .ready
         } catch {
@@ -40,6 +50,7 @@ final class EditorDocument: ObservableObject, Identifiable {
     func noteEdit(_ value: String) {
         text = value
         isDirty = value != savedText
+        scheduleAnalysis(for: value)
     }
 
     func save() async {
@@ -54,6 +65,20 @@ final class EditorDocument: ObservableObject, Identifiable {
             state = .ready
         } catch {
             state = .failed(error.localizedDescription)
+        }
+    }
+
+    private func scheduleAnalysis(for value: String) {
+        analysisTask?.cancel()
+        let profile = language
+        analysisTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(140))
+            guard !Task.isCancelled else { return }
+            let indexed = await Task.detached(priority: .utility) {
+                SymbolIndex.symbols(in: value, language: profile)
+            }.value
+            guard !Task.isCancelled, let self, self.text == value else { return }
+            self.symbols = indexed
         }
     }
 }
