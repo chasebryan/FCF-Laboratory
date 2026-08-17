@@ -53,6 +53,8 @@ struct WorkspaceView: View {
                 openProject()
             case .showGitStatus:
                 model.isNavigatorPresented = true
+            case .saveActiveDocument:
+                model.saveActiveDocument()
             }
         }
     }
@@ -76,6 +78,13 @@ struct WorkspaceView: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.primary.opacity(0.82))
                 .lineLimit(1)
+
+            if let document = model.activeEditorDocument, document.isDirty {
+                Circle()
+                    .fill(Color.primary.opacity(0.52))
+                    .frame(width: 5, height: 5)
+                    .help("Unsaved changes")
+            }
 
             if let git = model.gitSnapshot {
                 HStack(spacing: 5) {
@@ -118,6 +127,12 @@ struct WorkspaceView: View {
                         HStack(spacing: 7) {
                             Text(object.title)
                                 .lineLimit(1)
+
+                            if let url = object.url,
+                               model.editorDocuments[url.standardizedFileURL]?.isDirty == true {
+                                Circle()
+                                    .frame(width: 4, height: 4)
+                            }
 
                             if object.id == model.session.activeObjectID {
                                 Button {
@@ -163,6 +178,11 @@ struct WorkspaceView: View {
 
                 Spacer()
 
+                if model.isIndexingProject {
+                    ProgressView()
+                        .controlSize(.mini)
+                }
+
                 Button {
                     model.isNavigatorPresented = false
                 } label: {
@@ -176,38 +196,87 @@ struct WorkspaceView: View {
             .frame(height: 44)
 
             if let project = model.session.projectURL {
-                VStack(alignment: .leading, spacing: 10) {
-                    Label(project.lastPathComponent, systemImage: "folder")
+                HStack(spacing: 7) {
+                    Image(systemName: "folder")
+                        .foregroundStyle(.secondary)
+                    Text(project.lastPathComponent)
                         .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)
-
-                    if let git = model.gitSnapshot {
-                        Label(git.branch, systemImage: "arrow.triangle.branch")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
+                    Spacer()
                 }
                 .padding(.horizontal, 14)
-                .padding(.top, 10)
+                .frame(height: 30)
+
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(model.projectEntries) { entry in
+                            projectEntryRow(entry)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                if let git = model.gitSnapshot {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.triangle.branch")
+                        Text(git.branch)
+                        Spacer()
+                        if git.isDirty {
+                            Text("modified")
+                        }
+                    }
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 14)
+                    .frame(height: 32)
+                }
             } else {
                 Text("No project open")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .padding(14)
+                Spacer()
             }
-
-            Spacer()
         }
-        .frame(width: 220)
+        .frame(width: 240)
         .background(.ultraThinMaterial)
+    }
+
+    private func projectEntryRow(_ entry: ProjectEntry) -> some View {
+        Button {
+            guard entry.kind == .file else { return }
+            model.openFile(entry.url)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: entry.kind == .directory ? "folder" : "doc")
+                    .font(.system(size: 10))
+                    .foregroundStyle(entry.kind == .directory ? .secondary : .tertiary)
+                    .frame(width: 14)
+
+                Text(entry.name)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 11, weight: entry.kind == .directory ? .medium : .regular))
+            .foregroundStyle(entry.kind == .directory ? .secondary : .primary.opacity(0.82))
+            .padding(.leading, CGFloat(entry.depth) * 12 + 10)
+            .padding(.trailing, 10)
+            .frame(height: 24)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(entry.kind == .directory)
     }
 
     @ViewBuilder
     private var workspaceSurface: some View {
         if model.session.projectURL == nil {
             welcomeSurface
+        } else if let object = model.session.activeObject {
+            activeObjectSurface(object)
         } else {
-            activeObjectSurface
+            projectSurface
         }
     }
 
@@ -256,24 +325,47 @@ struct WorkspaceView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var activeObjectSurface: some View {
-        VStack(spacing: 12) {
+    private var projectSurface: some View {
+        VStack(spacing: 10) {
             Spacer()
-
-            Image(systemName: "square.grid.2x2")
-                .font(.system(size: 22, weight: .light))
-                .foregroundStyle(.tertiary)
-
-            Text(model.session.activeObject?.title ?? "Workspace")
-                .font(.system(size: 16, weight: .medium))
-
-            Text("Object rendering arrives here. The shell is already workspace-aware.")
+            Text(model.session.projectURL?.lastPathComponent ?? "Project")
+                .font(.system(size: 17, weight: .medium))
+            Text("Choose a file from the navigator or press ⌘K.")
                 .font(.system(size: 12))
                 .foregroundStyle(.tertiary)
-
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func activeObjectSurface(_ object: LaboratoryObject) -> some View {
+        if let document = model.activeEditorDocument {
+            EditorSurface(document: document)
+        } else {
+            VStack(spacing: 10) {
+                Spacer()
+                Image(systemName: iconName(for: object.kind))
+                    .font(.system(size: 22, weight: .light))
+                    .foregroundStyle(.tertiary)
+                Text(object.title)
+                    .font(.system(size: 16, weight: .medium))
+                Text("This object type will receive a native renderer.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func iconName(for kind: LaboratoryObject.Kind) -> String {
+        switch kind {
+        case .paper: return "doc.richtext"
+        case .dataset: return "tablecells"
+        case .notebook: return "rectangle.and.pencil.and.ellipsis"
+        default: return "doc"
+        }
     }
 
     private func openProject() {
@@ -295,12 +387,46 @@ struct WorkspaceView: View {
         switch command.id {
         case "project.open":
             openProject()
+        case "document.save":
+            model.saveActiveDocument()
         case "navigator.toggle":
             model.isNavigatorPresented.toggle()
         case "git.status":
             model.pendingAction = .showGitStatus
         default:
             break
+        }
+    }
+}
+
+private struct EditorSurface: View {
+    @ObservedObject var document: EditorDocument
+
+    var body: some View {
+        Group {
+            switch document.state {
+            case .loading:
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .failed(let message):
+                VStack(spacing: 8) {
+                    Text("Unable to open this file")
+                        .font(.system(size: 14, weight: .medium))
+                    Text(message)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .ready:
+                CodeEditorView(
+                    text: Binding(
+                        get: { document.text },
+                        set: { document.noteEdit($0) }
+                    ),
+                    onEdit: document.noteEdit
+                )
+            }
         }
     }
 }
