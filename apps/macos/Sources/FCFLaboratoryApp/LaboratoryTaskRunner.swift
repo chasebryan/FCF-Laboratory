@@ -5,6 +5,9 @@ struct LaboratoryTaskDescriptor: Identifiable, Hashable, Sendable {
     let name: String
     let executable: String
     let arguments: [String]
+
+    var title: String { name }
+    var command: [String] { [executable] + arguments }
 }
 
 struct LaboratoryTaskResult: Hashable, Sendable {
@@ -14,6 +17,9 @@ struct LaboratoryTaskResult: Hashable, Sendable {
     let duration: TimeInterval
 
     var succeeded: Bool { exitCode == 0 }
+    var title: String { taskID }
+    var stdout: String { output }
+    var stderr: String { "" }
 }
 
 enum LaboratoryTaskRunner {
