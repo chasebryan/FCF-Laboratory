@@ -17,7 +17,10 @@ impl PortablePath {
         if path.is_absolute() {
             return Err(PortablePathError::Absolute);
         }
-        if path.components().any(|component| matches!(component, Component::ParentDir)) {
+        if path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+        {
             return Err(PortablePathError::EscapesWorkspace);
         }
 
@@ -92,7 +95,10 @@ mod tests {
     #[test]
     fn portable_paths_reject_absolute_paths() {
         #[cfg(unix)]
-        assert_eq!(PortablePath::new("/tmp/work").unwrap_err(), PortablePathError::Absolute);
+        assert_eq!(
+            PortablePath::new("/tmp/work").unwrap_err(),
+            PortablePathError::Absolute
+        );
     }
 
     #[test]
