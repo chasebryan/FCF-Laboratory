@@ -8,6 +8,23 @@ final class EditorDocument: ObservableObject, Identifiable {
         case failed(String)
     }
 
+    private enum LoadFailure: LocalizedError, Sendable {
+        case tooLarge(Int)
+        case unreadable(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .tooLarge(let bytes):
+                let megabytes = Double(bytes) / 1_048_576.0
+                return String(format: "This text file is %.1f MB. The v0 editor intentionally caps editable text files at 32 MB to protect responsiveness.", megabytes)
+            case .unreadable(let message):
+                return message
+            }
+        }
+    }
+
+    static let maximumEditableBytes = 32 * 1_048_576
+
     let id = UUID()
     let url: URL
 
@@ -33,18 +50,28 @@ final class EditorDocument: ObservableObject, Identifiable {
     func load() async {
         state = .loading
 
-        do {
-            let loaded = try await Task.detached(priority: .userInitiated) { [url] in
-                try String(contentsOf: url, encoding: .utf8)
-            }.value
+        let result = await Task.detached(priority: .userInitiated) { [url] -> Result<String, LoadFailure> in
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+            let size = values?.fileSize ?? 0
+            guard size <= maximumEditableBytes else { return .failure(.tooLarge(size)) }
+
+            do {
+                return .success(try String(contentsOf: url, encoding: .utf8))
+            } catch {
+                return .failure(.unreadable(error.localizedDescription))
+            }
+        }.value
+
+        switch result {
+        case .success(let loaded):
             text = loaded
             savedText = loaded
             language = LanguageProfile.detect(url: url, contentPrefix: String(loaded.prefix(512)))
             symbols = SymbolIndex.symbols(in: loaded, language: language)
             isDirty = false
             state = .ready
-        } catch {
-            state = .failed(error.localizedDescription)
+        case .failure(let failure):
+            state = .failed(failure.localizedDescription)
         }
     }
 

@@ -1,7 +1,7 @@
 import Foundation
 
-struct ProjectEntry: Identifiable, Hashable {
-    enum Kind: Hashable {
+struct ProjectEntry: Identifiable, Hashable, Sendable {
+    enum Kind: Hashable, Sendable {
         case directory
         case file
     }
@@ -15,13 +15,14 @@ struct ProjectEntry: Identifiable, Hashable {
 
 enum ProjectIndexer {
     private static let ignoredNames: Set<String> = [
-        ".git", ".build", "target", "node_modules", ".DS_Store"
+        ".git", ".build", "target", "node_modules", ".DS_Store",
+        "DerivedData", ".venv", "venv", "__pycache__", "dist", "build"
     ]
 
-    static func discover(at root: URL, maxDepth: Int = 4, maxEntries: Int = 1_500) async -> [ProjectEntry] {
+    static func discover(at root: URL, maxDepth: Int = 16, maxEntries: Int = 20_000) async -> [ProjectEntry] {
         await Task.detached(priority: .utility) {
             var entries: [ProjectEntry] = []
-            walk(root, depth: 0, maxDepth: maxDepth, maxEntries: maxEntries, entries: &entries)
+            walk(root.standardizedFileURL, depth: 0, maxDepth: maxDepth, maxEntries: maxEntries, entries: &entries)
             return entries
         }.value
     }
@@ -35,14 +36,14 @@ enum ProjectIndexer {
     ) {
         guard depth <= maxDepth, entries.count < maxEntries else { return }
 
-        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .nameKey]
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .nameKey, .isPackageKey]
         let children: [URL]
 
         do {
             children = try FileManager.default.contentsOfDirectory(
                 at: directory,
                 includingPropertiesForKeys: Array(keys),
-                options: [.skipsHiddenFiles]
+                options: []
             )
         } catch {
             return
@@ -64,19 +65,23 @@ enum ProjectIndexer {
             guard values?.isSymbolicLink != true else { continue }
 
             if values?.isDirectory == true {
+                let normalized = child.standardizedFileURL
                 entries.append(ProjectEntry(
-                    id: child.standardizedFileURL.path,
+                    id: normalized.path,
                     name: name,
-                    url: child.standardizedFileURL,
+                    url: normalized,
                     kind: .directory,
                     depth: depth
                 ))
-                walk(child, depth: depth + 1, maxDepth: maxDepth, maxEntries: maxEntries, entries: &entries)
+                if values?.isPackage != true {
+                    walk(normalized, depth: depth + 1, maxDepth: maxDepth, maxEntries: maxEntries, entries: &entries)
+                }
             } else if values?.isRegularFile == true {
+                let normalized = child.standardizedFileURL
                 entries.append(ProjectEntry(
-                    id: child.standardizedFileURL.path,
+                    id: normalized.path,
                     name: name,
-                    url: child.standardizedFileURL,
+                    url: normalized,
                     kind: .file,
                     depth: depth
                 ))

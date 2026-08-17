@@ -168,7 +168,7 @@ struct WorkspaceView: View {
 
                         if object.id == model.session.activeObjectID {
                             Button {
-                                model.session.closeObject(object.id)
+                                model.requestCloseObject(object.id)
                             } label: {
                                 Image(systemName: "xmark")
                                     .font(.system(size: 8, weight: .semibold))
@@ -237,7 +237,7 @@ struct WorkspaceView: View {
 
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(model.projectEntries) { entry in
+                        ForEach(model.visibleProjectEntries) { entry in
                             projectEntryRow(entry)
                         }
                     }
@@ -290,14 +290,31 @@ struct WorkspaceView: View {
     }
 
     private func projectEntryRow(_ entry: ProjectEntry) -> some View {
-        Button {
-            guard entry.kind == .file else { return }
-            model.openFile(entry.url)
+        let isDirectory = entry.kind == .directory
+        let expanded = model.expandedDirectoryPaths.contains(entry.url.standardizedFileURL.path)
+
+        return Button {
+            if isDirectory {
+                model.toggleDirectory(entry.url)
+            } else {
+                model.openFile(entry.url)
+            }
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: entry.kind == .directory ? "folder" : "doc")
+            HStack(spacing: 5) {
+                Group {
+                    if isDirectory {
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 7, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        Color.clear
+                    }
+                }
+                .frame(width: 8, height: 12)
+
+                Image(systemName: isDirectory ? "folder" : "doc")
                     .font(.system(size: 10))
-                    .foregroundStyle(entry.kind == .directory ? .secondary : .tertiary)
+                    .foregroundStyle(isDirectory ? .secondary : .tertiary)
                     .frame(width: 14)
 
                 Text(entry.name)
@@ -305,15 +322,14 @@ struct WorkspaceView: View {
 
                 Spacer(minLength: 0)
             }
-            .font(.system(size: 11, weight: entry.kind == .directory ? .medium : .regular))
-            .foregroundStyle(Color.primary.opacity(entry.kind == .directory ? 0.55 : 0.82))
-            .padding(.leading, CGFloat(entry.depth) * 12 + 10)
+            .font(.system(size: 11, weight: isDirectory ? .medium : .regular))
+            .foregroundStyle(Color.primary.opacity(isDirectory ? 0.62 : 0.82))
+            .padding(.leading, CGFloat(entry.depth) * 12 + 8)
             .padding(.trailing, 10)
             .frame(height: 24)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(entry.kind == .directory)
     }
 
     @ViewBuilder
