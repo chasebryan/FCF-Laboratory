@@ -34,6 +34,13 @@ struct CommandRegistry {
             keywords: ["workspace", "folder", "repository"]
         ),
         LaboratoryCommand(
+            id: "document.save",
+            title: "Save Active Document",
+            subtitle: "Write the active editable object to disk",
+            shortcut: "⌘S",
+            keywords: ["file", "editor", "write"]
+        ),
+        LaboratoryCommand(
             id: "navigator.toggle",
             title: "Toggle Navigator",
             subtitle: "Reveal or hide project navigation",
