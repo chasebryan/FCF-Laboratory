@@ -22,6 +22,12 @@ struct FCFLaboratoryApp: App {
                 }
                 .keyboardShortcut("k", modifiers: [.command])
 
+                Button("Quick Open…") {
+                    model.utilityPanel = .quickOpen
+                }
+                .keyboardShortcut("p", modifiers: [.command])
+                .disabled(model.session.projectURL == nil)
+
                 Button("Toggle Navigator") {
                     model.isNavigatorPresented.toggle()
                 }
@@ -65,6 +71,7 @@ final class LaboratoryModel: ObservableObject {
     }
 
     enum UtilityPanel: Equatable {
+        case quickOpen
         case search
         case symbols
         case tasks
@@ -77,6 +84,7 @@ final class LaboratoryModel: ObservableObject {
     @Published var utilityPanel: UtilityPanel?
     @Published var gitSnapshot: GitSnapshot?
     @Published var gitWorkspaceState: GitWorkspaceState?
+    @Published var githubRemote: GitHubRemoteIdentity?
     @Published var session = WorkspaceSession()
     @Published private(set) var projectEntries: [ProjectEntry] = []
     @Published private(set) var isIndexingProject = false
@@ -87,6 +95,9 @@ final class LaboratoryModel: ObservableObject {
     @Published private(set) var runningTaskID: String?
     @Published private(set) var lastTaskResult: LaboratoryTaskResult?
     @Published private(set) var resolvedLanguageServer: ResolvedLanguageServer?
+    @Published private(set) var selectedGitChangeID: GitChange.ID?
+    @Published private(set) var gitDiffText = ""
+    @Published private(set) var isLoadingGitDiff = false
 
     let commands = CommandRegistry.foundation
     private var searchTask: Task<Void, Never>?
@@ -105,6 +116,9 @@ final class LaboratoryModel: ObservableObject {
         isNavigatorPresented = true
         gitSnapshot = nil
         gitWorkspaceState = nil
+        githubRemote = nil
+        gitDiffText = ""
+        selectedGitChangeID = nil
         projectEntries = []
         projectSearchResults = []
         editorDocuments = [:]
@@ -116,9 +130,11 @@ final class LaboratoryModel: ObservableObject {
         Task {
             async let git = GitRepository.snapshot(at: url)
             async let richGit = GitWorkspaceService.state(at: url)
+            async let github = GitHubRemoteService.detect(at: url)
             async let entries = ProjectIndexer.discover(at: url)
             gitSnapshot = await git
             gitWorkspaceState = await richGit
+            githubRemote = await github
             projectEntries = await entries
             isIndexingProject = false
         }
@@ -137,6 +153,9 @@ final class LaboratoryModel: ObservableObject {
         let document: EditorDocument
         if let existing = editorDocuments[standardized] {
             document = existing
+            Task {
+                resolvedLanguageServer = await LanguageServerDiscovery.resolve(for: document.language.id)
+            }
         } else {
             document = EditorDocument(url: standardized)
             editorDocuments[standardized] = document
@@ -156,11 +175,17 @@ final class LaboratoryModel: ObservableObject {
     func searchProject(_ query: String) {
         searchTask?.cancel()
         let entries = projectEntries
-        isSearchingProject = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            projectSearchResults = []
+            isSearchingProject = false
+            return
+        }
+        isSearchingProject = true
         searchTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
-            let results = await ProjectSearch.search(query: query, entries: entries)
+            let results = await ProjectSearch.search(query: trimmed, entries: entries)
             guard !Task.isCancelled, let self else { return }
             self.projectSearchResults = results
             self.isSearchingProject = false
@@ -190,6 +215,26 @@ final class LaboratoryModel: ObservableObject {
         Task {
             gitSnapshot = await GitRepository.snapshot(at: projectURL)
             gitWorkspaceState = await GitWorkspaceService.state(at: projectURL)
+            githubRemote = await GitHubRemoteService.detect(at: projectURL)
+        }
+    }
+
+    func loadGitDiff(_ change: GitChange) {
+        guard let projectURL = session.projectURL else { return }
+        selectedGitChangeID = change.id
+        gitDiffText = ""
+        isLoadingGitDiff = true
+        Task {
+            let text: String
+            if change.state == .untracked {
+                text = "Untracked file. No Git diff exists until the file is added."
+            } else {
+                let loaded = await GitWorkspaceService.diff(path: change.path, staged: change.staged, at: projectURL)
+                text = loaded.isEmpty ? "No diff available for this change." : loaded
+            }
+            guard selectedGitChangeID == change.id else { return }
+            gitDiffText = text
+            isLoadingGitDiff = false
         }
     }
 

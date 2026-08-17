@@ -377,7 +377,7 @@ struct WorkspaceView: View {
             Spacer()
             Text(model.session.projectURL?.lastPathComponent ?? "Project")
                 .font(.system(size: 17, weight: .medium))
-            Text("Choose a file from the navigator or press ⌘K.")
+            Text("Choose a file from the navigator or press ⌘P.")
                 .font(.system(size: 12))
                 .foregroundStyle(.tertiary)
             Spacer()
@@ -387,7 +387,9 @@ struct WorkspaceView: View {
 
     @ViewBuilder
     private func activeObjectSurface(_ object: LaboratoryObject) -> some View {
-        if let document = model.activeEditorDocument {
+        if object.kind == .paper, let url = object.url {
+            PDFDocumentView(url: url)
+        } else if let document = model.activeEditorDocument {
             EditorSurface(document: document)
         } else {
             VStack(spacing: 10) {
@@ -434,6 +436,8 @@ struct WorkspaceView: View {
         switch command.id {
         case "project.open":
             openProject()
+        case "project.quickOpen":
+            model.utilityPanel = .quickOpen
         case "project.search":
             model.utilityPanel = .search
         case "document.symbols":

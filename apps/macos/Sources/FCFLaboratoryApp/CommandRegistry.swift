@@ -34,6 +34,13 @@ struct CommandRegistry {
             keywords: ["workspace", "folder", "repository"]
         ),
         LaboratoryCommand(
+            id: "project.quickOpen",
+            title: "Quick Open",
+            subtitle: "Open an indexed project file",
+            shortcut: "⌘P",
+            keywords: ["file", "path", "open", "navigate"]
+        ),
+        LaboratoryCommand(
             id: "project.search",
             title: "Search Project",
             subtitle: "Search text across indexed project files",
@@ -70,8 +77,8 @@ struct CommandRegistry {
         LaboratoryCommand(
             id: "git.status",
             title: "Show Git Changes",
-            subtitle: "Inspect the active repository working tree",
-            keywords: ["repository", "branch", "changes", "diff"]
+            subtitle: "Inspect the active repository working tree and diffs",
+            keywords: ["repository", "branch", "changes", "diff", "github"]
         ),
     ])
 

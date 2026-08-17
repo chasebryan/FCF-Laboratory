@@ -16,8 +16,8 @@ struct WorkspaceUtilityPanel: View {
 
             content
         }
-        .frame(width: 620)
-        .frame(maxHeight: 440)
+        .frame(width: 660)
+        .frame(maxHeight: 500)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -25,7 +25,9 @@ struct WorkspaceUtilityPanel: View {
         }
         .shadow(color: .black.opacity(0.16), radius: 32, y: 16)
         .onAppear {
-            if model.utilityPanel == .search { fieldFocused = true }
+            if model.utilityPanel == .quickOpen || model.utilityPanel == .search {
+                fieldFocused = true
+            }
         }
         .onExitCommand {
             model.utilityPanel = nil
@@ -56,6 +58,8 @@ struct WorkspaceUtilityPanel: View {
     @ViewBuilder
     private var content: some View {
         switch model.utilityPanel {
+        case .quickOpen:
+            quickOpenContent
         case .search:
             searchContent
         case .symbols:
@@ -66,6 +70,65 @@ struct WorkspaceUtilityPanel: View {
             gitContent
         case nil:
             EmptyView()
+        }
+    }
+
+    private var quickOpenMatches: [ProjectEntry] {
+        let files = model.projectEntries.filter { $0.kind == .file }
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return Array(files.prefix(80)) }
+        return Array(files.filter { entry in
+            entry.name.lowercased().contains(normalized) || entry.url.path.lowercased().contains(normalized)
+        }.prefix(80))
+    }
+
+    private var quickOpenContent: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 9) {
+                Image(systemName: "doc.text.magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Open file", text: $query)
+                    .textFieldStyle(.plain)
+                    .focused($fieldFocused)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 42)
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.05))
+                .frame(height: 1)
+
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(quickOpenMatches) { entry in
+                        Button {
+                            model.openFile(entry.url)
+                            model.utilityPanel = nil
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "doc")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 14)
+                                Text(entry.name)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .lineLimit(1)
+                                Spacer()
+                                Text(relativePath(entry.url))
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(height: 31)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(8)
+            }
+            .frame(minHeight: 240)
         }
     }
 
@@ -123,7 +186,7 @@ struct WorkspaceUtilityPanel: View {
                 }
                 .padding(8)
             }
-            .frame(minHeight: 220)
+            .frame(minHeight: 240)
         }
     }
 
@@ -157,7 +220,7 @@ struct WorkspaceUtilityPanel: View {
                     }
                     .padding(8)
                 }
-                .frame(minHeight: 220)
+                .frame(minHeight: 240)
             } else {
                 emptyMessage("Open a source document to inspect symbols.")
             }
@@ -217,21 +280,26 @@ struct WorkspaceUtilityPanel: View {
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxHeight: 150)
+                    .frame(maxHeight: 160)
                 }
                 .padding(12)
             }
         }
-        .frame(minHeight: 220)
+        .frame(minHeight: 240)
     }
 
     private var gitContent: some View {
         VStack(spacing: 0) {
             if let state = model.gitWorkspaceState {
-                HStack {
+                HStack(spacing: 8) {
                     Image(systemName: "arrow.triangle.branch")
                     Text(state.branch)
                         .font(.system(size: 12, weight: .medium))
+                    if let github = model.githubRemote {
+                        Text(github.slug)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                    }
                     Spacer()
                     Text("\(state.changes.count) change\(state.changes.count == 1 ? "" : "s")")
                         .font(.system(size: 10))
@@ -249,31 +317,65 @@ struct WorkspaceUtilityPanel: View {
                     .fill(Color.primary.opacity(0.05))
                     .frame(height: 1)
 
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(state.changes) { change in
-                            HStack(spacing: 10) {
-                                Text(change.state.rawValue.prefix(1).uppercased())
-                                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 14)
-                                Text(change.path)
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .lineLimit(1)
-                                Spacer()
-                                if change.staged {
-                                    Text("staged")
-                                        .font(.system(size: 9))
-                                        .foregroundStyle(.tertiary)
+                HSplitView {
+                    ScrollView {
+                        LazyVStack(spacing: 2) {
+                            ForEach(state.changes) { change in
+                                Button {
+                                    model.loadGitDiff(change)
+                                } label: {
+                                    HStack(spacing: 9) {
+                                        Text(change.state.rawValue.prefix(1).uppercased())
+                                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                                            .foregroundStyle(.secondary)
+                                            .frame(width: 14)
+                                        Text(change.path)
+                                            .font(.system(size: 10.5, design: .monospaced))
+                                            .lineLimit(1)
+                                        Spacer(minLength: 4)
+                                        if change.staged {
+                                            Text("staged")
+                                                .font(.system(size: 8.5))
+                                                .foregroundStyle(.tertiary)
+                                        }
+                                    }
+                                    .padding(.horizontal, 9)
+                                    .frame(height: 28)
+                                    .contentShape(Rectangle())
+                                    .background {
+                                        if model.selectedGitChangeID == change.id {
+                                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                                .fill(Color.primary.opacity(0.055))
+                                        }
+                                    }
                                 }
+                                .buttonStyle(.plain)
                             }
-                            .padding(.horizontal, 12)
-                            .frame(height: 28)
+                        }
+                        .padding(6)
+                    }
+                    .frame(minWidth: 210)
+
+                    ZStack {
+                        if model.isLoadingGitDiff {
+                            ProgressView().controlSize(.small)
+                        } else if model.gitDiffText.isEmpty {
+                            Text("Select a change to inspect its diff.")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.tertiary)
+                        } else {
+                            ScrollView([.horizontal, .vertical]) {
+                                Text(model.gitDiffText)
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                                    .padding(10)
+                            }
                         }
                     }
-                    .padding(8)
+                    .frame(minWidth: 320)
                 }
-                .frame(minHeight: 220)
+                .frame(minHeight: 300)
             } else {
                 emptyMessage("This project is not a Git repository.")
             }
@@ -282,12 +384,21 @@ struct WorkspaceUtilityPanel: View {
 
     private var title: String {
         switch model.utilityPanel {
+        case .quickOpen: return "Quick Open"
         case .search: return "Search Project"
         case .symbols: return "Document Symbols"
         case .tasks: return "Tasks"
         case .git: return "Git"
         case nil: return "Laboratory"
         }
+    }
+
+    private func relativePath(_ url: URL) -> String {
+        guard let root = model.session.projectURL else { return url.path }
+        let rootPath = root.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(rootPath) else { return path }
+        return String(path.dropFirst(rootPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 
     private func symbolIcon(_ kind: DocumentSymbol.Kind) -> String {
@@ -304,7 +415,7 @@ struct WorkspaceUtilityPanel: View {
         Text(text)
             .font(.system(size: 11))
             .foregroundStyle(.tertiary)
-            .frame(maxWidth: .infinity, minHeight: 180)
+            .frame(maxWidth: .infinity, minHeight: 190)
             .padding(20)
     }
 }
