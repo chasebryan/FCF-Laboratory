@@ -6,9 +6,10 @@ struct GitChange: Identifiable, Hashable, Sendable {
         case modified
         case deleted
         case renamed
+        case copied
         case untracked
-        case conflicted
-        case other
+        case unmerged
+        case unknown
     }
 
     let id: String
@@ -67,12 +68,13 @@ enum GitWorkspaceService {
 
     private static func state(x: Character, y: Character) -> GitChange.State {
         if x == "?" && y == "?" { return .untracked }
-        if x == "U" || y == "U" || (x == "A" && y == "A") || (x == "D" && y == "D") { return .conflicted }
+        if x == "U" || y == "U" || (x == "A" && y == "A") || (x == "D" && y == "D") { return .unmerged }
         if x == "R" || y == "R" { return .renamed }
+        if x == "C" || y == "C" { return .copied }
         if x == "A" || y == "A" { return .added }
         if x == "D" || y == "D" { return .deleted }
         if x == "M" || y == "M" { return .modified }
-        return .other
+        return .unknown
     }
 
     private static func runGit(_ arguments: [String], at directory: URL) -> String {
