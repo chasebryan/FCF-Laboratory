@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+
+# Swift
+.build/
+.swiftpm/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Rust
+packages/rust/target/
+
+# Editors
+.idea/
+.vscode/
+
+# Runtime state
+.fcf-laboratory/
+*.fcf-cache
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Temporary files
+*.tmp
+*.swp
+*~
