@@ -4,10 +4,8 @@ struct DocumentSymbol: Identifiable, Hashable, Sendable {
     enum Kind: String, Sendable {
         case type
         case function
-        case method
         case property
-        case module
-        case other
+        case heading
     }
 
     let id: String
@@ -47,9 +45,8 @@ enum SymbolIndex {
             ])
         case .rust:
             return firstMatch(in: trimmed, line: line, patterns: [
-                (#"\b(?:struct|enum|trait|type)\s+([A-Za-z_][A-Za-z0-9_]*)"#, .type),
+                (#"\b(?:struct|enum|trait|type|mod)\s+([A-Za-z_][A-Za-z0-9_]*)"#, .type),
                 (#"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)"#, .function),
-                (#"\bmod\s+([A-Za-z_][A-Za-z0-9_]*)"#, .module),
             ])
         case .python:
             return firstMatch(in: trimmed, line: line, patterns: [
@@ -67,9 +64,13 @@ enum SymbolIndex {
             ])
         case .ocaml:
             return firstMatch(in: trimmed, line: line, patterns: [
-                (#"^module\s+([A-Za-z_][A-Za-z0-9_]*)"#, .module),
+                (#"^module\s+([A-Za-z_][A-Za-z0-9_]*)"#, .type),
                 (#"^let\s+(?:rec\s+)?([A-Za-z_][A-Za-z0-9_]*)"#, .function),
                 (#"^type\s+([A-Za-z_][A-Za-z0-9_]*)"#, .type),
+            ])
+        case .markdown:
+            return firstMatch(in: trimmed, line: line, patterns: [
+                (#"^#{1,6}\s+(.+?)\s*$"#, .heading),
             ])
         default:
             return nil
