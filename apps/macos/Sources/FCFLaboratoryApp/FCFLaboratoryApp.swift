@@ -35,7 +35,7 @@ struct FCFLaboratoryApp: App {
 
 @MainActor
 final class LaboratoryModel: ObservableObject {
-    enum PendingAction {
+    enum PendingAction: Equatable {
         case openProject
         case cloneRepository
         case newWorkspace
