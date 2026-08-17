@@ -1,0 +1,15 @@
+protocol = "FCF-ENGINE-v1"
+id = "centl"
+name = "CENTL"
+repository = "https://github.com/chasebryan/centl"
+
+capabilities = [
+  "exact-arithmetic",
+  "symbolic-computation",
+  "verification",
+]
+
+transports = [
+  "local-executable",
+  "custom-executable",
+]

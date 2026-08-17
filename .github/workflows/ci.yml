@@ -1,0 +1,64 @@
+name: Foundation CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: foundation-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-core:
+    name: Rust core (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            runner: ubuntu-latest
+          - name: Linux arm64
+            runner: ubuntu-24.04-arm
+          - name: Windows x86_64
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+      - name: Format
+        shell: bash
+        run: cargo fmt --manifest-path packages/rust/Cargo.toml --all --check
+      - name: Lint
+        shell: bash
+        run: cargo clippy --manifest-path packages/rust/Cargo.toml --workspace --all-targets --all-features -- -D warnings
+      - name: Test
+        shell: bash
+        run: cargo test --manifest-path packages/rust/Cargo.toml --workspace --all-features
+
+  macos-arm64:
+    name: macOS Apple Silicon
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Enforce Apple Silicon runner
+        run: test "$(uname -m)" = "arm64"
+      - name: Build native app shell
+        run: swift build --package-path apps/macos -c debug
+      - name: Test native app services
+        run: swift test --package-path apps/macos -c debug
+      - name: Smoke-test native PTY
+        run: swift run --package-path apps/macos -c debug FCFPTYSmoke
+      - name: Test portable core on macOS arm64
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo test --manifest-path packages/rust/Cargo.toml --workspace --all-features
