@@ -50,7 +50,7 @@ struct CodeEditorView: NSViewRepresentable {
         scrollView.rulersVisible = true
         scrollView.verticalRulerView = LineNumberRulerView(textView: textView)
 
-        context.coordinator.applyHighlighting(to: textView)
+        context.coordinator.scheduleHighlighting(for: textView, delay: .zero)
         context.coordinator.handleRequestedJump(in: textView)
         return scrollView
     }
@@ -62,7 +62,7 @@ struct CodeEditorView: NSViewRepresentable {
             let selectedRanges = textView.selectedRanges
             textView.string = text
             textView.selectedRanges = selectedRanges
-            context.coordinator.applyHighlighting(to: textView)
+            context.coordinator.scheduleHighlighting(for: textView, delay: .zero)
         }
         context.coordinator.handleRequestedJump(in: textView)
     }
@@ -70,15 +70,20 @@ struct CodeEditorView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: CodeEditorView
+        private var highlightTask: Task<Void, Never>?
 
         init(parent: CodeEditorView) {
             self.parent = parent
         }
 
+        deinit {
+            highlightTask?.cancel()
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             parent.onEdit(textView.string)
-            applyHighlighting(to: textView)
+            scheduleHighlighting(for: textView, delay: .milliseconds(90))
             textView.enclosingScrollView?.verticalRulerView?.needsDisplay = true
         }
 
@@ -103,7 +108,30 @@ struct CodeEditorView: NSViewRepresentable {
             parent.onJumpHandled()
         }
 
-        func applyHighlighting(to textView: NSTextView) {
+        func scheduleHighlighting(for textView: NSTextView, delay: Duration) {
+            highlightTask?.cancel()
+            let source = textView.string
+            let language = parent.language
+
+            highlightTask = Task { [weak self, weak textView] in
+                if delay != .zero {
+                    try? await Task.sleep(for: delay)
+                }
+                guard !Task.isCancelled else { return }
+
+                let highlights = await Task.detached(priority: .utility) {
+                    SyntaxService.highlights(in: source, language: language)
+                }.value
+
+                guard !Task.isCancelled,
+                      let self,
+                      let textView,
+                      textView.string == source else { return }
+                self.apply(highlights: highlights, to: textView)
+            }
+        }
+
+        private func apply(highlights: [SyntaxHighlight], to textView: NSTextView) {
             guard let storage = textView.textStorage else { return }
             let selectedRanges = textView.selectedRanges
             let fullRange = NSRange(location: 0, length: storage.length)
@@ -115,7 +143,7 @@ struct CodeEditorView: NSViewRepresentable {
                 .foregroundColor: NSColor.labelColor,
             ], range: fullRange)
 
-            for highlight in SyntaxService.highlights(in: textView.string, language: parent.language) {
+            for highlight in highlights {
                 guard NSMaxRange(highlight.range) <= storage.length else { continue }
                 storage.addAttribute(.foregroundColor, value: SyntaxService.color(for: highlight.role), range: highlight.range)
             }

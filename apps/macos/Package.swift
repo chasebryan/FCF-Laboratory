@@ -14,6 +14,11 @@ let package = Package(
         .executableTarget(
             name: "FCFLaboratoryApp",
             path: "Sources/FCFLaboratoryApp"
+        ),
+        .testTarget(
+            name: "FCFLaboratoryAppTests",
+            dependencies: ["FCFLaboratoryApp"],
+            path: "Tests/FCFLaboratoryAppTests"
         )
     ]
 )

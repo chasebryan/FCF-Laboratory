@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-enum SyntaxRole: Hashable {
+enum SyntaxRole: Hashable, Sendable {
     case keyword
     case string
     case comment
@@ -9,7 +9,7 @@ enum SyntaxRole: Hashable {
     case type
 }
 
-struct SyntaxHighlight: Hashable {
+struct SyntaxHighlight: Hashable, Sendable {
     let range: NSRange
     let role: SyntaxRole
 }
