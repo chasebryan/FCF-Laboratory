@@ -8,7 +8,8 @@ let package = Package(
         .macOS(.v15)
     ],
     products: [
-        .executable(name: "FCF-Laboratory", targets: ["FCFLaboratoryApp"])
+        .executable(name: "FCF-Laboratory", targets: ["FCFLaboratoryApp"]),
+        .executable(name: "FCFPTYSmoke", targets: ["FCFPTYSmoke"]),
     ],
     targets: [
         .target(
@@ -18,6 +19,11 @@ let package = Package(
             linkerSettings: [
                 .linkedLibrary("util")
             ]
+        ),
+        .executableTarget(
+            name: "FCFPTYSmoke",
+            dependencies: ["FCFPTY"],
+            path: "Sources/FCFPTYSmoke"
         ),
         .executableTarget(
             name: "FCFLaboratoryApp",

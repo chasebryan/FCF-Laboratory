@@ -55,6 +55,8 @@ jobs:
         run: swift build --package-path apps/macos -c debug
       - name: Test native app services
         run: swift test --package-path apps/macos -c debug
+      - name: Smoke-test native PTY
+        run: swift run --package-path apps/macos -c debug FCFPTYSmoke
       - name: Test portable core on macOS arm64
         run: |
           rustup toolchain install stable --profile minimal
