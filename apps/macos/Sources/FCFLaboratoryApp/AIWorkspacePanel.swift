@@ -2,10 +2,22 @@ import SwiftUI
 
 struct AIWorkspacePanel: View {
     @ObservedObject var controller: AIWorkspaceController
-    let context: AIWorkspaceContextSnapshot
+    @ObservedObject private var auth: OpenAIAuthService
+    @ObservedObject private var policy: AIContextPolicy
+    let contextProvider: @MainActor () -> AIWorkspaceContextSnapshot
 
     @State private var apiKey = ""
     @State private var prompt = ""
+
+    init(
+        controller: AIWorkspaceController,
+        contextProvider: @escaping @MainActor () -> AIWorkspaceContextSnapshot
+    ) {
+        self.controller = controller
+        self._auth = ObservedObject(wrappedValue: controller.auth)
+        self._policy = ObservedObject(wrappedValue: controller.policy)
+        self.contextProvider = contextProvider
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,8 +37,8 @@ struct AIWorkspacePanel: View {
                 TextField(
                     "Model",
                     text: Binding(
-                        get: { controller.auth.model },
-                        set: { controller.auth.model = $0 }
+                        get: { auth.model },
+                        set: { auth.model = $0 }
                     )
                 )
                 .textFieldStyle(.roundedBorder)
@@ -34,13 +46,13 @@ struct AIWorkspacePanel: View {
                 .frame(width: 120)
             }
 
-            if case .unconfigured = controller.auth.status {
+            if case .unconfigured = auth.status {
                 HStack(spacing: 8) {
                     SecureField("OpenAI API key", text: $apiKey)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 10.5))
                     Button("Store in Keychain") {
-                        controller.auth.storeAPIKey(apiKey)
+                        auth.storeAPIKey(apiKey)
                         apiKey = ""
                     }
                     .buttonStyle(.bordered)
@@ -56,7 +68,7 @@ struct AIWorkspacePanel: View {
                 permissionToggle("Project files", keyPath: \AIContextPolicy.projectFiles)
                 permissionToggle("Git diff", keyPath: \AIContextPolicy.gitDiff)
                 Spacer()
-                Button("Revoke All") { controller.policy.revokeAll() }
+                Button("Revoke All") { policy.revokeAll() }
                     .buttonStyle(.plain)
                     .font(.system(size: 8.5, weight: .medium))
                     .foregroundStyle(.tertiary)
@@ -71,7 +83,7 @@ struct AIWorkspacePanel: View {
 
     @ViewBuilder
     private var statusLabel: some View {
-        switch controller.auth.status {
+        switch auth.status {
         case .unconfigured:
             Label("OpenAI not configured", systemImage: "sparkles")
                 .font(.system(size: 10.5, weight: .medium))
@@ -103,8 +115,8 @@ struct AIWorkspacePanel: View {
         Toggle(
             title,
             isOn: Binding(
-                get: { controller.policy[keyPath: keyPath] },
-                set: { controller.policy[keyPath: keyPath] = $0 }
+                get: { policy[keyPath: keyPath] },
+                set: { policy[keyPath: keyPath] = $0 }
             )
         )
         .toggleStyle(.checkbox)
@@ -197,6 +209,6 @@ struct AIWorkspacePanel: View {
     private func send() {
         let value = prompt
         prompt = ""
-        controller.send(value, context: context)
+        controller.send(value, context: contextProvider())
     }
 }
