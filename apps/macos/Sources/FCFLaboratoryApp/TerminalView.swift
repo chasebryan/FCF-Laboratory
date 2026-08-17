@@ -67,7 +67,7 @@ private final class TerminalScrollView: NSScrollView {
         terminalTextView.maxSize = NSSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         terminalTextView.isVerticallyResizable = true
         terminalTextView.isHorizontallyResizable = false
-        terminalTextView.autoresizingMask = [.width]
+        terminalTextView.autoresizingMask = NSView.AutoresizingMask.width
         terminalTextView.textContainer?.widthTracksTextView = true
         terminalTextView.textContainerInset = NSSize(width: 16, height: 14)
         documentView = terminalTextView
@@ -93,6 +93,10 @@ private final class TerminalScrollView: NSScrollView {
 @MainActor
 private final class TerminalTextView: NSTextView {
     var sendBytes: ((Data) -> Void)?
+
+    convenience init() {
+        self.init(frame: .zero, textContainer: nil)
+    }
 
     override var acceptsFirstResponder: Bool { true }
 
