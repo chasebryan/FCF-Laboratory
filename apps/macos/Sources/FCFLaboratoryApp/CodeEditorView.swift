@@ -4,6 +4,8 @@ import SwiftUI
 struct CodeEditorView: NSViewRepresentable {
     @Binding var text: String
     var language: LanguageProfile = .profile(.plainText)
+    var requestedLine: Int? = nil
+    var onJumpHandled: () -> Void = {}
     var onEdit: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -49,6 +51,7 @@ struct CodeEditorView: NSViewRepresentable {
         scrollView.verticalRulerView = LineNumberRulerView(textView: textView)
 
         context.coordinator.applyHighlighting(to: textView)
+        context.coordinator.handleRequestedJump(in: textView)
         return scrollView
     }
 
@@ -61,8 +64,10 @@ struct CodeEditorView: NSViewRepresentable {
             textView.selectedRanges = selectedRanges
             context.coordinator.applyHighlighting(to: textView)
         }
+        context.coordinator.handleRequestedJump(in: textView)
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: CodeEditorView
 
@@ -75,6 +80,27 @@ struct CodeEditorView: NSViewRepresentable {
             parent.onEdit(textView.string)
             applyHighlighting(to: textView)
             textView.enclosingScrollView?.verticalRulerView?.needsDisplay = true
+        }
+
+        func handleRequestedJump(in textView: NSTextView) {
+            guard let requestedLine = parent.requestedLine else { return }
+            let string = textView.string as NSString
+            var line = 1
+            var index = 0
+
+            while line < requestedLine && index < string.length {
+                let range = string.lineRange(for: NSRange(location: index, length: 0))
+                let next = NSMaxRange(range)
+                if next <= index { break }
+                index = next
+                line += 1
+            }
+
+            let selection = NSRange(location: min(index, string.length), length: 0)
+            textView.setSelectedRange(selection)
+            textView.scrollRangeToVisible(selection)
+            textView.window?.makeFirstResponder(textView)
+            parent.onJumpHandled()
         }
 
         func applyHighlighting(to textView: NSTextView) {
