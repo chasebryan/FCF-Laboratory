@@ -22,6 +22,11 @@ struct FCFLaboratoryApp: App {
                 }
                 .keyboardShortcut("k", modifiers: [.command])
 
+                Button("Toggle Navigator") {
+                    model.isNavigatorPresented.toggle()
+                }
+                .keyboardShortcut("b", modifiers: [.command])
+
                 Divider()
 
                 Button("Open Project…") {
@@ -37,11 +42,28 @@ struct FCFLaboratoryApp: App {
 final class LaboratoryModel: ObservableObject {
     enum PendingAction: Equatable {
         case openProject
-        case cloneRepository
-        case newWorkspace
+        case showGitStatus
     }
 
     @Published var isCommandPalettePresented = false
+    @Published var isNavigatorPresented = false
     @Published var pendingAction: PendingAction?
-    @Published var activeObjectTitle = "FCF Laboratory"
+    @Published var gitSnapshot: GitSnapshot?
+    @Published var session = WorkspaceSession()
+
+    let commands = CommandRegistry.foundation
+
+    var activeObjectTitle: String {
+        session.activeObject?.title ?? "FCF Laboratory"
+    }
+
+    func openProject(_ url: URL) {
+        session.openProject(url)
+        isNavigatorPresented = true
+        gitSnapshot = nil
+
+        Task {
+            gitSnapshot = await GitRepository.snapshot(at: url)
+        }
+    }
 }
