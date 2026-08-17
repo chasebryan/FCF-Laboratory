@@ -16,6 +16,7 @@ final class EditorDocument: ObservableObject, Identifiable {
     @Published private(set) var isDirty = false
     @Published private(set) var language: LanguageProfile
     @Published private(set) var symbols: [DocumentSymbol] = []
+    @Published private(set) var requestedLine: Int?
 
     private var savedText = ""
     private var analysisTask: Task<Void, Never>?
@@ -51,6 +52,14 @@ final class EditorDocument: ObservableObject, Identifiable {
         text = value
         isDirty = value != savedText
         scheduleAnalysis(for: value)
+    }
+
+    func requestJump(to line: Int) {
+        requestedLine = max(1, line)
+    }
+
+    func clearRequestedJump() {
+        requestedLine = nil
     }
 
     func save() async {

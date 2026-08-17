@@ -41,8 +41,17 @@ struct WorkspaceView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .top)))
                     .zIndex(10)
             }
+
+            if model.utilityPanel != nil {
+                WorkspaceUtilityPanel()
+                    .environmentObject(model)
+                    .padding(.top, 72)
+                    .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .top)))
+                    .zIndex(11)
+            }
         }
         .animation(.easeOut(duration: 0.12), value: model.isCommandPalettePresented)
+        .animation(.easeOut(duration: 0.12), value: model.utilityPanel)
         .animation(.easeOut(duration: 0.14), value: model.isNavigatorPresented)
         .onChange(of: model.pendingAction) { _, action in
             guard let action else { return }
@@ -52,7 +61,7 @@ struct WorkspaceView: View {
             case .openProject:
                 openProject()
             case .showGitStatus:
-                model.isNavigatorPresented = true
+                model.utilityPanel = .git
             case .saveActiveDocument:
                 model.saveActiveDocument()
             }
@@ -60,7 +69,7 @@ struct WorkspaceView: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             if !model.isNavigatorPresented {
                 Button {
                     model.isNavigatorPresented = true
@@ -79,11 +88,17 @@ struct WorkspaceView: View {
                 .foregroundStyle(.primary.opacity(0.82))
                 .lineLimit(1)
 
-            if let document = model.activeEditorDocument, document.isDirty {
-                Circle()
-                    .fill(Color.primary.opacity(0.52))
-                    .frame(width: 5, height: 5)
-                    .help("Unsaved changes")
+            if let document = model.activeEditorDocument {
+                Text(document.language.displayName)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.tertiary)
+
+                if document.isDirty {
+                    Circle()
+                        .fill(Color.primary.opacity(0.52))
+                        .frame(width: 5, height: 5)
+                        .help("Unsaved changes")
+                }
             }
 
             if let git = model.gitSnapshot {
@@ -95,11 +110,18 @@ struct WorkspaceView: View {
                             .frame(width: 5, height: 5)
                     }
                 }
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 24)
+
+            if let server = model.resolvedLanguageServer {
+                Image(systemName: "bolt.horizontal.circle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .help("Language server available: \(server.descriptor.displayName)")
+            }
 
             Button {
                 model.isCommandPalettePresented.toggle()
@@ -121,41 +143,47 @@ struct WorkspaceView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 3) {
                 ForEach(model.session.objects) { object in
-                    Button {
-                        model.session.activeObjectID = object.id
-                    } label: {
-                        HStack(spacing: 7) {
-                            Text(object.title)
-                                .lineLimit(1)
+                    HStack(spacing: 3) {
+                        Button {
+                            model.session.activeObjectID = object.id
+                        } label: {
+                            HStack(spacing: 7) {
+                                Text(object.title)
+                                    .lineLimit(1)
 
-                            if let url = object.url,
-                               model.editorDocuments[url.standardizedFileURL]?.isDirty == true {
-                                Circle()
-                                    .frame(width: 4, height: 4)
-                            }
-
-                            if object.id == model.session.activeObjectID {
-                                Button {
-                                    model.session.closeObject(object.id)
-                                } label: {
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 8, weight: .semibold))
+                                if let url = object.url,
+                                   model.editorDocuments[url.standardizedFileURL]?.isDirty == true {
+                                    Circle()
+                                        .frame(width: 4, height: 4)
                                 }
-                                .buttonStyle(.plain)
                             }
+                            .font(.system(size: 11, weight: object.id == model.session.activeObjectID ? .medium : .regular))
+                            .foregroundStyle(object.id == model.session.activeObjectID ? .primary : .secondary)
+                            .padding(.leading, 10)
+                            .padding(.trailing, object.id == model.session.activeObjectID ? 4 : 10)
+                            .frame(height: 30)
+                            .contentShape(Rectangle())
                         }
-                        .font(.system(size: 11, weight: object.id == model.session.activeObjectID ? .medium : .regular))
-                        .foregroundStyle(object.id == model.session.activeObjectID ? .primary : .secondary)
-                        .padding(.horizontal, 10)
-                        .frame(height: 30)
-                        .background {
-                            if object.id == model.session.activeObjectID {
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .fill(Color.primary.opacity(0.055))
+                        .buttonStyle(.plain)
+
+                        if object.id == model.session.activeObjectID {
+                            Button {
+                                model.session.closeObject(object.id)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .frame(width: 20, height: 28)
                             }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.tertiary)
                         }
                     }
-                    .buttonStyle(.plain)
+                    .background {
+                        if object.id == model.session.activeObjectID {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color.primary.opacity(0.055))
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 10)
@@ -216,20 +244,7 @@ struct WorkspaceView: View {
                     .padding(.vertical, 4)
                 }
 
-                if let git = model.gitSnapshot {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.triangle.branch")
-                        Text(git.branch)
-                        Spacer()
-                        if git.isDirty {
-                            Text("modified")
-                        }
-                    }
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 14)
-                    .frame(height: 32)
-                }
+                navigatorFooter
             } else {
                 Text("No project open")
                     .font(.system(size: 11))
@@ -240,6 +255,38 @@ struct WorkspaceView: View {
         }
         .frame(width: 240)
         .background(.ultraThinMaterial)
+    }
+
+    private var navigatorFooter: some View {
+        HStack(spacing: 12) {
+            if let git = model.gitSnapshot {
+                Button {
+                    model.utilityPanel = .git
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.triangle.branch")
+                        Text(git.branch)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+
+            if !model.availableTasks.isEmpty {
+                Button {
+                    model.utilityPanel = .tasks
+                } label: {
+                    Image(systemName: "play")
+                }
+                .buttonStyle(.plain)
+                .help("Tasks")
+            }
+        }
+        .font(.system(size: 10))
+        .foregroundStyle(.tertiary)
+        .padding(.horizontal, 14)
+        .frame(height: 32)
     }
 
     private func projectEntryRow(_ entry: ProjectEntry) -> some View {
@@ -387,12 +434,18 @@ struct WorkspaceView: View {
         switch command.id {
         case "project.open":
             openProject()
+        case "project.search":
+            model.utilityPanel = .search
+        case "document.symbols":
+            model.utilityPanel = .symbols
         case "document.save":
             model.saveActiveDocument()
         case "navigator.toggle":
             model.isNavigatorPresented.toggle()
+        case "tasks.show":
+            model.utilityPanel = .tasks
         case "git.status":
-            model.pendingAction = .showGitStatus
+            model.utilityPanel = .git
         default:
             break
         }
@@ -424,6 +477,9 @@ private struct EditorSurface: View {
                         get: { document.text },
                         set: { document.noteEdit($0) }
                     ),
+                    language: document.language,
+                    requestedLine: document.requestedLine,
+                    onJumpHandled: document.clearRequestedJump,
                     onEdit: document.noteEdit
                 )
             }
@@ -494,9 +550,9 @@ private struct CommandPaletteView: View {
                 }
                 .padding(8)
             }
-            .frame(maxHeight: 260)
+            .frame(maxHeight: 300)
         }
-        .frame(width: 520)
+        .frame(width: 540)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)

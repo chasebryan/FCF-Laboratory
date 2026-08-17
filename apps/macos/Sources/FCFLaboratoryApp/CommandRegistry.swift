@@ -34,6 +34,20 @@ struct CommandRegistry {
             keywords: ["workspace", "folder", "repository"]
         ),
         LaboratoryCommand(
+            id: "project.search",
+            title: "Search Project",
+            subtitle: "Search text across indexed project files",
+            shortcut: "⇧⌘F",
+            keywords: ["find", "grep", "workspace", "files"]
+        ),
+        LaboratoryCommand(
+            id: "document.symbols",
+            title: "Document Symbols",
+            subtitle: "Navigate local symbols in the active document",
+            shortcut: "⇧⌘O",
+            keywords: ["outline", "function", "class", "struct", "method"]
+        ),
+        LaboratoryCommand(
             id: "document.save",
             title: "Save Active Document",
             subtitle: "Write the active editable object to disk",
@@ -48,10 +62,16 @@ struct CommandRegistry {
             keywords: ["sidebar", "files", "project"]
         ),
         LaboratoryCommand(
+            id: "tasks.show",
+            title: "Show Tasks",
+            subtitle: "Run detected build and test tasks",
+            keywords: ["build", "test", "cargo", "swift", "pytest", "run"]
+        ),
+        LaboratoryCommand(
             id: "git.status",
-            title: "Show Git Status",
-            subtitle: "Inspect the active repository",
-            keywords: ["repository", "branch", "changes"]
+            title: "Show Git Changes",
+            subtitle: "Inspect the active repository working tree",
+            keywords: ["repository", "branch", "changes", "diff"]
         ),
     ])
 
