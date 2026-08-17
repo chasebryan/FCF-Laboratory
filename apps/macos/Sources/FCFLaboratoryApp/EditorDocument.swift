@@ -23,7 +23,7 @@ final class EditorDocument: ObservableObject, Identifiable {
         }
     }
 
-    static let maximumEditableBytes = 32 * 1_048_576
+    nonisolated static let maximumEditableBytes = 32 * 1_048_576
 
     let id = UUID()
     let url: URL
@@ -50,15 +50,17 @@ final class EditorDocument: ObservableObject, Identifiable {
     func load() async {
         state = .loading
 
-        let result = await Task.detached(priority: .userInitiated) { [url] -> Result<String, LoadFailure> in
+        let result = await Task.detached(priority: .userInitiated) { [url] in
             let values = try? url.resourceValues(forKeys: [.fileSizeKey])
             let size = values?.fileSize ?? 0
-            guard size <= maximumEditableBytes else { return .failure(.tooLarge(size)) }
+            guard size <= EditorDocument.maximumEditableBytes else {
+                return Result<String, LoadFailure>.failure(.tooLarge(size))
+            }
 
             do {
-                return .success(try String(contentsOf: url, encoding: .utf8))
+                return Result<String, LoadFailure>.success(try String(contentsOf: url, encoding: .utf8))
             } catch {
-                return .failure(.unreadable(error.localizedDescription))
+                return Result<String, LoadFailure>.failure(.unreadable(error.localizedDescription))
             }
         }.value
 

@@ -36,4 +36,26 @@ final class FoundationServicesTests: XCTestCase {
         let https = GitHubRemoteService.parse("https://github.com/chasebryan/FCF-Laboratory.git")
         XCTAssertEqual(https?.slug, "chasebryan/FCF-Laboratory")
     }
+
+    func testProjectIndexerIncludesHiddenTechnicalFilesAndDeepSources() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FCFLaboratoryTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let github = root.appendingPathComponent(".github/workflows", isDirectory: true)
+        let deep = root.appendingPathComponent("src/a/b/c/d/e", isDirectory: true)
+        try FileManager.default.createDirectory(at: github, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
+        try "name: CI\n".write(to: github.appendingPathComponent("ci.yml"), atomically: true, encoding: .utf8)
+        try "fn main() {}\n".write(to: deep.appendingPathComponent("main.rs"), atomically: true, encoding: .utf8)
+
+        let entries = await ProjectIndexer.discover(at: root, maxDepth: 16, maxEntries: 100)
+        XCTAssertTrue(entries.contains { $0.name == ".github" && $0.kind == .directory })
+        XCTAssertTrue(entries.contains { $0.name == "ci.yml" && $0.kind == .file })
+        XCTAssertTrue(entries.contains { $0.name == "main.rs" && $0.kind == .file })
+    }
+
+    func testEditorLimitProtectsInteractionBudget() {
+        XCTAssertEqual(EditorDocument.maximumEditableBytes, 32 * 1_048_576)
+    }
 }
