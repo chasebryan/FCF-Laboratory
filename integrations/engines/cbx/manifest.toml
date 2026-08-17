@@ -1,0 +1,14 @@
+protocol = "FCF-ENGINE-v1"
+id = "cbx"
+name = "CBX"
+repository = "https://github.com/chasebryan/centl-cbx"
+
+capabilities = [
+  "search",
+  "verification",
+]
+
+transports = [
+  "local-executable",
+  "custom-executable",
+]
