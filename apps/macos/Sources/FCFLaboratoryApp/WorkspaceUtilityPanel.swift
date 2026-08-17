@@ -91,8 +91,11 @@ struct WorkspaceUtilityPanel: View {
             GitHubWorkspacePanel(controller: model.githubWorkspace, remote: model.githubRemote)
                 .frame(maxHeight: 490)
         case .ai:
-            AIWorkspacePanel(controller: model.aiWorkspace, context: model.aiContextSnapshot)
-                .frame(maxHeight: 530)
+            AIWorkspacePanel(
+                controller: model.aiWorkspace,
+                contextProvider: { model.aiContextSnapshot }
+            )
+            .frame(maxHeight: 530)
         case .none: EmptyView()
         }
     }
